@@ -4,10 +4,12 @@ An intelligent bash script that analyzes your git changes and generates meaningf
 
 ## Features
 
-- 🤖 **AI-Powered Analysis** - Uses Ollama models to understand your code changes
-- 📝 **Conventional Commits** - Generates properly formatted commit messages (feat:, fix:, etc.)
+- 🤖 **AI-Powered Analysis** - Uses Ollama models to understand your code changes with semantic analysis
+- 📝 **Conventional Commits** - Generates properly formatted commit messages (feat:, fix:, perf:, etc.)
 - 🎯 **Context-Aware** - Considers recent commit history for consistent messaging style
 - ⚡ **Smart Validation** - Automatically improves and shortens messages when needed
+- 🔧 **Performance Detection** - Automatically detects performance optimizations (ThreadPoolExecutor, batch processing, concurrency)
+- 🎯 **Auto-Correction** - Intelligently corrects commit types (e.g., feat→perf for performance changes)
 - 🔍 **Dry Run Mode** - Preview commit messages without making changes
 - 📊 **Comprehensive Logging** - Detailed logs for debugging and transparency
 - 🌐 **Fully Portable** - Works from any git repository
@@ -224,6 +226,7 @@ ssh-add ~/.ssh/id_ed25519_work  # Work
 
 ## Generated Commit Message Examples
 
+- `perf(google-api): add batch + concurrency with limit parameter`
 - `feat(auth): add JWT token validation with expiry handling`
 - `fix(api): resolve memory leak in data processing pipeline`
 - `refactor(db): optimize query performance for user lookups`
@@ -258,8 +261,9 @@ Examples:
 ### Smart Message Improvement
 The script automatically:
 - Validates conventional commit format
-- Shortens messages that exceed 80 characters
-- Improves messages that don't follow proper format
+- Shortens messages that exceed 72 characters
+- Auto-corrects commit types based on code content (feat→perf for performance improvements)
+- Detects performance patterns: ThreadPoolExecutor, batch processing, concurrency
 - Uses context from recent commits for consistency
 
 ### Robust Error Handling

@@ -176,6 +176,17 @@ analyze_semantic_changes() {
             changes_summary+="new dependencies; "
         fi
         
+        # Look for performance optimization patterns
+        if git diff HEAD -- "$file" | grep -qi "^+.*concurrent\|^+.*batch\|^+.*thread\|^+.*async\|^+.*parallel\|^+.*performance"; then
+            changes_summary+="performance optimizations; "
+        fi
+        if git diff HEAD -- "$file" | grep -qi "^+.*ThreadPoolExecutor\|^+.*concurrent.futures\|^+.*multiprocessing\|^+.*BatchHttpRequest"; then
+            changes_summary+="concurrency/batch processing; "
+        fi
+        if git diff HEAD -- "$file" | grep -qi "^+.*--fast\|^+.*--max-workers\|^+.*--limited\|^+.*limit.*parameter"; then
+            changes_summary+="performance CLI options; "
+        fi
+        
         echo "Modified (+$additions -$deletions lines); $changes_summary"
     fi
 }
@@ -202,7 +213,10 @@ get_git_diff() {
         git diff --cached --name-status | while IFS=$'\t' read -r status file; do
             case "$status" in
                 A) echo "NEW: $file - $(analyze_semantic_changes "$file" "new")" >> "$temp_file" ;;
-                M) echo "MODIFIED: $file - $(analyze_semantic_changes "$file" "modified")" >> "$temp_file" ;;
+                M) 
+                    local semantic_analysis=$(analyze_semantic_changes "$file" "modified")
+                    local code_analysis=$(analyze_code_changes "$file")
+                    echo "MODIFIED: $file - $semantic_analysis | $code_analysis" >> "$temp_file" ;;
                 D) echo "DELETED: $file" >> "$temp_file" ;;
                 R*) echo "RENAMED: $file" >> "$temp_file" ;;
             esac
@@ -278,8 +292,8 @@ get_git_diff() {
     if [ -n "$staged_diff" ] || [ -n "$unstaged_diff" ]; then
         echo -e "\n=== KEY DIFF CONTEXT ===" >> "$temp_file"
         local combined_diff="$staged_diff"$'\n'"$unstaged_diff"
-        # Get meaningful diff lines (function definitions, major changes)
-        echo "$combined_diff" | grep -E "^[+-].*def |^[+-].*class |^[+-].*function|^[+-].*#.*[Tt]ool|^[+-].*#.*[Ss]cript|^@@" | head -20 >> "$temp_file"
+        # Get meaningful diff lines (function definitions, major changes, performance patterns)
+        echo "$combined_diff" | grep -E "^[+-].*def |^[+-].*class |^[+-].*function|^[+-].*import.*concurrent|^[+-].*ThreadPoolExecutor|^[+-].*batch|^[+-].*--fast|^[+-].*--max-workers|^[+-].*--limited|^[+-].*#.*[Tt]ool|^[+-].*#.*[Ss]cript|^@@" | head -30 >> "$temp_file"
     fi
     
     # Read the complete analysis
@@ -288,6 +302,30 @@ get_git_diff() {
     
     log "Analysis content length: ${#analysis_content} characters"
     echo "$analysis_content"
+}
+
+# Function to analyze code changes depth and complexity
+analyze_code_changes() {
+    local file="$1"
+    local additions=$(git diff HEAD -- "$file" | grep "^+" | wc -l 2>/dev/null || echo "0")
+    
+    # Look for specific patterns that indicate major changes
+    local performance_changes=$(git diff HEAD -- "$file" | grep -i "^+.*\(concurrent\|batch\|thread\|async\|parallel\)" | wc -l 2>/dev/null || echo "0")
+    local new_functions=$(git diff HEAD -- "$file" | grep "^+.*def " | wc -l 2>/dev/null || echo "0")
+    local new_imports=$(git diff HEAD -- "$file" | grep "^+.*import" | wc -l 2>/dev/null || echo "0")
+    local new_classes=$(git diff HEAD -- "$file" | grep "^+.*class " | wc -l 2>/dev/null || echo "0")
+    
+    if [ "$performance_changes" -gt 3 ]; then
+        echo "major performance optimizations ($performance_changes perf changes)"
+    elif [ "$new_functions" -gt 5 ]; then
+        echo "significant functionality expansion ($new_functions new functions)"  
+    elif [ "$new_classes" -gt 1 ]; then
+        echo "architectural changes ($new_classes new classes)"
+    elif [ "$additions" -gt 100 ]; then
+        echo "substantial code additions ($additions+ lines)"
+    else
+        echo "moderate changes ($additions lines)"
+    fi
 }
 
 # Function to get recent commit history for context
@@ -388,13 +426,16 @@ $recent_commits
 === COMMIT MESSAGE RULES ===
 Format: type(scope): description (max 100 chars)
 
-Types based on actual changes:
+Types based on actual changes (PRIORITIZE perf when applicable):
+- perf: Performance improvements (batch processing, concurrency, optimization, threading) - USE THIS for ThreadPoolExecutor, batch APIs, concurrent processing
 - feat: NEW functionality, tools, scripts, or features
-- refactor: MAJOR changes to existing code (rewrites, restructuring) 
+- refactor: MAJOR changes to existing code (rewrites, restructuring, architectural changes) 
 - fix: Bug fixes or corrections
 - docs: Documentation updates
 - chore: Maintenance, config, minor updates
 - style: Code formatting, no functional changes
+
+STRICT LENGTH LIMIT: Maximum 72 characters total.
 
 Scope guidelines:
 - Use specific component names (scripts, gam, api, etc.)
@@ -413,20 +454,30 @@ Scope guidelines:
    - If it's configuration: use 'chore'
 
 3. For MODIFIED files:
-   - If major rewrite (>50% changed): use 'refactor'
+   - If performance optimizations (concurrent/batch/threading): use 'perf'
+   - If major rewrite (>50% changed) or architectural changes: use 'refactor'
    - If adding new functions/features: use 'feat'
    - If fixing bugs: use 'fix'
    - If minor updates: use 'chore'
 
 4. Look for the PRIMARY change (the most significant one) and base the commit type on that.
+   - Performance improvements with ThreadPoolExecutor/batch APIs use 'perf'
+   - Major functionality + performance focus on the dominant change type
 
 5. Be specific about what was actually accomplished, not just what files changed.
+   - Instead of \"add limit parameter\" use \"add batch processing, concurrency, and limit parameters\"
+   - Include the core technical improvement in the description
 
-Examples of GOOD messages:
-- feat(gam): add URL-based ownership checker with domain migration tool
-- refactor(scripts): rewrite check-ownership for CLI usage and add migration utility  
-- docs(readme): update ownership checker usage instructions
-- feat: add comprehensive domain file decontamination system
+Examples of GOOD messages (SHORT and SPECIFIC):
+- perf(google-api): add batch processing + concurrency
+- feat(gam): add domain ownership checker  
+- refactor(scripts): rewrite for CLI usage
+- docs(readme): update usage instructions
+- perf: optimize with ThreadPoolExecutor + batching
+
+BAD examples (too long, wrong type):
+- feat(google-api/move-domain-owned-files) - Performance optimizations with concurrent/batch processing and limit parameters; configuration updates for improved performance. (171 chars - TOO LONG)
+- feat: add performance improvements (should be 'perf')
 
 Generate ONLY the commit message, no explanation:"
 
@@ -439,13 +490,21 @@ Generate ONLY the commit message, no explanation:"
     # Note: Status message moved outside of function to avoid output capture
     
     log "Making curl request to Ollama..."
+    # Create a temporary file with the JSON payload to avoid escaping issues
+    local temp_json=$(mktemp)
+    cat > "$temp_json" << EOF
+{
+    "model": "$OLLAMA_MODEL",
+    "prompt": $(echo "$prompt" | jq -R -s .),
+    "stream": false
+}
+EOF
+    
     local response=$(curl -s --max-time 120 -X POST "$OLLAMA_API_URL/api/generate" \
         -H "Content-Type: application/json" \
-        -d "{
-            \"model\": \"$OLLAMA_MODEL\",
-            \"prompt\": $(echo "$prompt" | jq -R -s .),
-            \"stream\": false
-        }")
+        -d "@$temp_json")
+    
+    rm -f "$temp_json"
     
     log "Curl request completed. Response length: ${#response} characters"
     log "Raw response: $response"
@@ -463,17 +522,21 @@ Generate ONLY the commit message, no explanation:"
     
     log "Original commit message before cleanup: '$commit_message'"
     
-    # Clean up the commit message - extract content after </think> tag
+    # Clean up the commit message - extract content after </think> tag and handle multiple messages
     if echo "$commit_message" | grep -q "<think>"; then
         log "Found <think> tags, extracting content after </think>"
         # Extract everything after </think> and remove any remaining XML-like tags
         commit_message=$(echo "$commit_message" | sed 's/.*<\/think>//' | sed 's/<[^>]*>//g' | grep -v '^$' | tail -1 | xargs)
         log "Extracted from think tags: '$commit_message'"
     else
-        # Original cleanup for other thinking patterns
+        # Original cleanup for other thinking patterns + handle multiple messages
         commit_message=$(echo "$commit_message" | sed -E 's/^[Tt]hinking\.\.\..*$//g' | sed -E 's/^[Tt]hinking:.*$//g' | sed -E 's/^[Tt]hinking.*\.\.\..*$//g' | sed '/^$/d' | head -1 | xargs)
         log "Standard cleanup applied: '$commit_message'"
     fi
+    
+    # Remove backticks and extract first message if multiple were generated
+    commit_message=$(echo "$commit_message" | sed 's/`//g' | head -1 | xargs)
+    log "Removed backticks and selected first message: '$commit_message'"
     
     log "Commit message after initial cleanup: '$commit_message'"
     
@@ -484,9 +547,19 @@ Generate ONLY the commit message, no explanation:"
         log "Alternative extraction result: '$commit_message'"
     fi
     
-    # Simple validation - no secondary API calls for improvements
-    if [ ${#commit_message} -gt 100 ]; then
-        log "Warning: Generated message is ${#commit_message} characters (over 100 char limit)"
+    # Enhanced validation and auto-correction
+    if [ ${#commit_message} -gt 72 ]; then
+        log "Warning: Generated message is ${#commit_message} characters (over 72 char limit)"
+        # Try to shorten automatically
+        commit_message=$(echo "$commit_message" | sed 's/Performance optimizations/optimize/' | sed 's/concurrent\/batch processing/batch+concurrency/' | sed 's/ and / + /' | sed 's/parameters/params/' | sed 's/configuration/config/')
+        log "Auto-shortened to: '$commit_message' (${#commit_message} chars)"
+    fi
+    
+    # Auto-correct type based on content analysis
+    if echo "$commit_message" | grep -qi "performance\|concurrent\|batch\|thread\|optimization" && ! echo "$commit_message" | grep -qE '^perf'; then
+        log "Auto-correcting: Performance-related change should use 'perf' type"
+        commit_message=$(echo "$commit_message" | sed 's/^feat/perf/' | sed 's/^refactor/perf/' | sed 's/^chore/perf/')
+        log "Corrected to: '$commit_message'"
     fi
     
     if ! echo "$commit_message" | grep -qE '^(feat|fix|docs|style|refactor|test|chore|build|ci|perf|revert)'; then
