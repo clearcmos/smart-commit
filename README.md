@@ -182,7 +182,7 @@ cat ~/.cache/smart-commit.log
 
 ## License
 
-This script is provided as-is for personal and educational use. Modify and distribute freely.
+MIT License - see [LICENSE](LICENSE) file for details.
 
 ## Contributing
 
