@@ -122,6 +122,106 @@ OLLAMA_MODEL="llama3.2:1b" smart-commit --dry-run
 OLLAMA_API_URL="http://localhost:11434" smart-commit
 ```
 
+## Multi-Account GitHub Setup
+
+For users who need to work with different GitHub accounts on the same machine (personal vs work, multiple organizations, etc.), you can configure SSH to use different keys for different repositories.
+
+### Setting Up Multiple GitHub Accounts
+
+#### 1. Generate SSH keys for each account
+```bash
+# Personal account key (if you don't already have one)
+ssh-keygen -t ed25519 -C "personal@example.com" -f ~/.ssh/id_ed25519
+
+# Work account key
+ssh-keygen -t ed25519 -C "work@company.com" -f ~/.ssh/id_ed25519_work
+```
+
+#### 2. Add keys to SSH agent
+```bash
+ssh-add ~/.ssh/id_ed25519       # Personal key
+ssh-add ~/.ssh/id_ed25519_work  # Work key
+```
+
+#### 3. Create SSH config file
+Create or edit `~/.ssh/config`:
+```ssh
+# Default GitHub account (personal)
+Host github.com
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/id_ed25519
+
+# Work GitHub account
+Host github-work
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/id_ed25519_work
+```
+
+#### 4. Add public keys to respective GitHub accounts
+```bash
+# Copy personal key
+cat ~/.ssh/id_ed25519.pub
+
+# Copy work key
+cat ~/.ssh/id_ed25519_work.pub
+```
+
+Add these to the appropriate GitHub accounts in **Settings → SSH and GPG keys**.
+
+#### 5. Configure repositories to use specific accounts
+
+**For personal repos:**
+```bash
+git remote set-url origin git@github.com:username/repo.git
+```
+
+**For work repos:**
+```bash
+git remote set-url origin git@github-work:company/repo.git
+```
+
+#### 6. Test your configuration
+```bash
+ssh -T git@github.com      # Should show personal account
+ssh -T git@github-work     # Should show work account
+```
+
+### Using smart-commit with Multiple Accounts
+
+Once configured, **smart-commit works automatically** with your multi-account setup:
+
+- The script calls `git push` which uses whatever remote URL is configured
+- Your SSH config routes the connection to the correct GitHub account
+- No changes needed to smart-commit itself
+
+**Example workflow:**
+```bash
+# In a work repository
+cd /path/to/work-repo
+smart-commit  # Automatically uses work account
+
+# In a personal repository  
+cd /path/to/personal-repo
+smart-commit  # Automatically uses personal account
+```
+
+### Troubleshooting Multi-Account Setup
+
+**Both connections show the same account:**
+```bash
+# Clear SSH agent and reload keys
+ssh-add -D
+ssh-add ~/.ssh/id_ed25519       # Personal
+ssh-add ~/.ssh/id_ed25519_work  # Work
+```
+
+**Permission denied errors:**
+- Verify the correct public key is added to the right GitHub account
+- Check that your SSH config host aliases match your remote URLs
+- Ensure the repository owner has given your account appropriate access
+
 ## Generated Commit Message Examples
 
 - `feat(auth): add JWT token validation with expiry handling`
