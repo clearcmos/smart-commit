@@ -178,7 +178,7 @@ Generate ONLY the commit message:"
     
     # Call Ollama API
     if [ "$DRY_RUN" = false ]; then
-        echo -e "${BLUE}Analyzing changes and generating commit message...${NC}"
+        echo -e "${BLUE}Analyzing changes and generating commit message...${NC}" >&2
     fi
     
     log "Making curl request to Ollama..."
