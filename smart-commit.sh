@@ -199,8 +199,8 @@ Generate ONLY the commit message:"
     
     if [ -z "$commit_message" ] || [ "$commit_message" = "null" ]; then
         log "ERROR: Failed to generate commit message"
-        echo -e "${RED}Error: Failed to generate commit message${NC}"
-        echo "Ollama response: $response"
+        echo -e "${RED}Error: Failed to generate commit message${NC}" >&2
+        echo "Ollama response: $response" >&2
         exit 1
     fi
     
