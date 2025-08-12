@@ -14,18 +14,44 @@ An intelligent bash script that analyzes your git changes and generates meaningf
 
 ## Installation
 
-### 1. Copy to your bin directory
-```bash
-# User-specific installation
-cp smart-commit.sh ~/bin/smart-commit
-chmod +x ~/bin/smart-commit
+### Automated Setup (Recommended)
 
-# Or system-wide installation
-sudo cp smart-commit.sh /usr/local/bin/smart-commit
+Run the setup script for easy installation:
+
+```bash
+./setup
 ```
 
-### 2. Configure environment variables
-Add to your `~/.bashrc` or `~/.bash_profile`:
+The setup script will:
+- Detect your OS (Linux/macOS) and configure the appropriate shell profile
+- Ask if you want to use a remote OLLAMA server or embedded solution
+- Prompt for your OLLAMA server IP address
+- Set up environment variables in `.bashrc` (Linux) or `.zshrc` (macOS)
+- Install `smart-commit` to `/usr/local/bin/` system-wide
+
+After setup, reload your shell:
+```bash
+source ~/.bashrc  # Linux
+# or
+source ~/.zshrc   # macOS
+```
+
+### Manual Installation
+
+If you prefer manual setup:
+
+#### 1. Copy to your bin directory
+```bash
+# System-wide installation (recommended)
+sudo cp smart-commit.sh /usr/local/bin/smart-commit
+
+# Or user-specific installation
+cp smart-commit.sh ~/bin/smart-commit
+chmod +x ~/bin/smart-commit
+```
+
+#### 2. Configure environment variables
+Add to your `~/.bashrc` (Linux) or `~/.zshrc` (macOS):
 ```bash
 # Ollama configuration for smart-commit script
 export OLLAMA_API_URL="http://192.168.1.2:11434"
@@ -34,7 +60,8 @@ export OLLAMA_MODEL="qwen3:8b"
 
 Then reload your shell:
 ```bash
-source ~/.bashrc
+source ~/.bashrc  # Linux
+source ~/.zshrc   # macOS
 ```
 
 ## Prerequisites

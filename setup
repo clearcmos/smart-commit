@@ -1,0 +1,190 @@
+#!/bin/bash
+
+# Smart Commit Setup Script
+# Sets up OLLAMA integration and installs smart-commit to system path
+
+set -e
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Check if running as root
+if [[ $EUID -eq 0 ]]; then
+    echo -e "${RED}Error: This script should not be run as root.${NC}"
+    echo "It will use sudo when necessary."
+    exit 1
+fi
+
+# Detect OS
+detect_os() {
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        OS="linux"
+        SHELL_PROFILE="$HOME/.bashrc"
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        OS="macos"
+        SHELL_PROFILE="$HOME/.zshrc"
+    else
+        echo -e "${RED}Error: Unsupported operating system: $OSTYPE${NC}"
+        exit 1
+    fi
+    
+    echo -e "${BLUE}Detected OS: $OS${NC}"
+    echo -e "${BLUE}Shell profile: $SHELL_PROFILE${NC}"
+}
+
+# Function to check if environment variable exists in shell profile
+check_env_var() {
+    local var_name="$1"
+    if grep -q "^export $var_name=" "$SHELL_PROFILE" 2>/dev/null; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Function to add or update environment variable in shell profile
+add_env_var() {
+    local var_name="$1"
+    local var_value="$2"
+    
+    if check_env_var "$var_name"; then
+        echo -e "${YELLOW}$var_name already exists in $SHELL_PROFILE${NC}"
+        read -p "Do you want to update it? (y/N): " update_var
+        if [[ $update_var =~ ^[Yy]$ ]]; then
+            # Remove existing line and add new one
+            sed -i "/^export $var_name=/d" "$SHELL_PROFILE"
+            echo "export $var_name=\"$var_value\"" >> "$SHELL_PROFILE"
+            echo -e "${GREEN}Updated $var_name in $SHELL_PROFILE${NC}"
+        else
+            echo -e "${YELLOW}Keeping existing $var_name${NC}"
+        fi
+    else
+        echo "export $var_name=\"$var_value\"" >> "$SHELL_PROFILE"
+        echo -e "${GREEN}Added $var_name to $SHELL_PROFILE${NC}"
+    fi
+}
+
+# Function to setup OLLAMA integration
+setup_ollama() {
+    echo
+    echo -e "${BLUE}OLLAMA Integration Setup${NC}"
+    echo "========================"
+    echo
+    echo "Choose your OLLAMA integration type:"
+    echo "1) Remote OLLAMA server (point to existing server)"
+    echo "2) Embedded/Local solution (not implemented yet - will use remote for now)"
+    echo
+    
+    read -p "Enter your choice (1-2): " ollama_choice
+    
+    case $ollama_choice in
+        1)
+            echo -e "${BLUE}Setting up remote OLLAMA server...${NC}"
+            read -p "Enter the IP address of your OLLAMA server (e.g., 192.168.1.2): " remote_ip
+            
+            # Validate IP address format (basic validation)
+            if [[ ! $remote_ip =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+                echo -e "${RED}Error: Invalid IP address format${NC}"
+                exit 1
+            fi
+            
+            local api_url="http://$remote_ip:11434"
+            local model="qwen3:8b"
+            
+            echo -e "${BLUE}Setting up environment variables...${NC}"
+            add_env_var "OLLAMA_API_URL" "$api_url"
+            add_env_var "OLLAMA_MODEL" "$model"
+            
+            echo -e "${GREEN}Remote OLLAMA setup complete!${NC}"
+            echo -e "${YELLOW}API URL: $api_url${NC}"
+            echo -e "${YELLOW}Model: $model${NC}"
+            ;;
+        2)
+            echo -e "${YELLOW}Embedded/Local OLLAMA solution is not implemented yet.${NC}"
+            echo -e "${YELLOW}Falling back to remote setup...${NC}"
+            echo
+            read -p "Enter the IP address of your OLLAMA server (e.g., 192.168.1.2): " remote_ip
+            
+            # Validate IP address format (basic validation)
+            if [[ ! $remote_ip =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+                echo -e "${RED}Error: Invalid IP address format${NC}"
+                exit 1
+            fi
+            
+            local api_url="http://$remote_ip:11434"
+            local model="qwen3:8b"
+            
+            echo -e "${BLUE}Setting up environment variables...${NC}"
+            add_env_var "OLLAMA_API_URL" "$api_url"
+            add_env_var "OLLAMA_MODEL" "$model"
+            
+            echo -e "${GREEN}OLLAMA setup complete!${NC}"
+            echo -e "${YELLOW}API URL: $api_url${NC}"
+            echo -e "${YELLOW}Model: $model${NC}"
+            ;;
+        *)
+            echo -e "${RED}Error: Invalid choice${NC}"
+            exit 1
+            ;;
+    esac
+}
+
+# Function to install smart-commit to system path
+install_smart_commit() {
+    echo
+    echo -e "${BLUE}Installing smart-commit to system path...${NC}"
+    
+    # Check if smart-commit.sh exists
+    if [[ ! -f "smart-commit.sh" ]]; then
+        echo -e "${RED}Error: smart-commit.sh not found in current directory${NC}"
+        exit 1
+    fi
+    
+    # Copy to /usr/local/bin with sudo
+    echo -e "${YELLOW}Copying smart-commit to /usr/local/bin/ (requires sudo)...${NC}"
+    sudo cp smart-commit.sh /usr/local/bin/smart-commit
+    sudo chmod +x /usr/local/bin/smart-commit
+    
+    echo -e "${GREEN}smart-commit installed successfully!${NC}"
+    echo -e "${YELLOW}You can now use 'smart-commit' from anywhere in your system.${NC}"
+}
+
+# Main setup function
+main() {
+    echo -e "${GREEN}Smart Commit Setup${NC}"
+    echo "=================="
+    echo
+    
+    # Detect OS and set shell profile
+    detect_os
+    
+    # Create shell profile if it doesn't exist
+    if [[ ! -f "$SHELL_PROFILE" ]]; then
+        touch "$SHELL_PROFILE"
+        echo -e "${YELLOW}Created $SHELL_PROFILE${NC}"
+    fi
+    
+    # Setup OLLAMA integration
+    setup_ollama
+    
+    # Install smart-commit to system path
+    install_smart_commit
+    
+    echo
+    echo -e "${GREEN}Setup completed successfully!${NC}"
+    echo
+    echo -e "${YELLOW}Important: Reload your shell or run 'source $SHELL_PROFILE' to use the new environment variables.${NC}"
+    echo -e "${YELLOW}Then you can use 'smart-commit' from any git repository.${NC}"
+    echo
+    echo "Usage examples:"
+    echo "  smart-commit              # Analyze changes and commit"
+    echo "  smart-commit --dry-run    # Preview commit message without committing"
+    echo "  smart-commit --help       # Show help"
+}
+
+# Run main function
+main "$@"
