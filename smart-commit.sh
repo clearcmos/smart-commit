@@ -177,12 +177,10 @@ Generate ONLY the commit message:"
     log "Prompt length: ${#prompt} characters"
     
     # Call Ollama API
-    if [ "$DRY_RUN" = false ]; then
-        echo -e "${BLUE}Analyzing changes and generating commit message...${NC}" >&2
-    fi
+    # Note: Status message moved outside of function to avoid output capture
     
     log "Making curl request to Ollama..."
-    local response=$(curl -s -X POST "$OLLAMA_API_URL/api/generate" \
+    local response=$(curl -s --max-time 120 -X POST "$OLLAMA_API_URL/api/generate" \
         -H "Content-Type: application/json" \
         -d "{
             \"model\": \"$OLLAMA_MODEL\",
@@ -273,7 +271,7 @@ Requirements:
 
 Generate ONLY the improved commit message:"
 
-    local response=$(curl -s -X POST "$OLLAMA_API_URL/api/generate" \
+    local response=$(curl -s --max-time 60 -X POST "$OLLAMA_API_URL/api/generate" \
         -H "Content-Type: application/json" \
         -d "{
             \"model\": \"$OLLAMA_MODEL\",
@@ -311,7 +309,7 @@ Requirements:
 
 Generate ONLY the shortened commit message:"
 
-    local response=$(curl -s -X POST "$OLLAMA_API_URL/api/generate" \
+    local response=$(curl -s --max-time 60 -X POST "$OLLAMA_API_URL/api/generate" \
         -H "Content-Type: application/json" \
         -d "{
             \"model\": \"$OLLAMA_MODEL\",
@@ -420,6 +418,9 @@ main() {
     
     # Generate commit message
     log "Generating commit message..."
+    if [ "$DRY_RUN" = false ]; then
+        echo -e "${BLUE}Analyzing changes and generating commit message...${NC}"
+    fi
     local commit_message=$(generate_commit_message "$diff_content" "$files_status")
     log "Generated commit message: '$commit_message'"
     
