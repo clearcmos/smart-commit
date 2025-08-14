@@ -46,6 +46,114 @@ check_env_var() {
     fi
 }
 
+# Function to get current environment variable value
+get_env_var() {
+    local var_name="$1"
+    grep "^export $var_name=" "$SHELL_PROFILE" 2>/dev/null | cut -d'=' -f2- | tr -d '"'
+}
+
+# Function to check if Ollama is installed
+check_ollama_installed() {
+    if command -v ollama >/dev/null 2>&1; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Function to check if Ollama service is running
+check_ollama_running() {
+    if check_ollama_installed; then
+        # Check if ollama is responding
+        if curl -s --max-time 5 http://localhost:11434/api/tags >/dev/null 2>&1; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# Function to check if qwen3:8b model is available
+check_qwen3_model() {
+    if check_ollama_running; then
+        if curl -s http://localhost:11434/api/tags | grep -q '"qwen3:8b"'; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# Function to install Ollama
+install_ollama() {
+    echo -e "${BLUE}Installing Ollama...${NC}"
+    
+    if [[ "$OS" == "macos" ]]; then
+        # Check if Homebrew is available
+        if command -v brew >/dev/null 2>&1; then
+            echo -e "${YELLOW}Installing Ollama via Homebrew...${NC}"
+            brew install ollama
+        else
+            echo -e "${YELLOW}Installing Ollama via curl...${NC}"
+            curl -fsSL https://ollama.com/install.sh | sh
+        fi
+    elif [[ "$OS" == "linux" ]]; then
+        echo -e "${YELLOW}Installing Ollama via curl...${NC}"
+        curl -fsSL https://ollama.com/install.sh | sh
+    fi
+    
+    if check_ollama_installed; then
+        echo -e "${GREEN}Ollama installed successfully!${NC}"
+    else
+        echo -e "${RED}Failed to install Ollama${NC}"
+        exit 1
+    fi
+}
+
+# Function to start Ollama service
+start_ollama_service() {
+    echo -e "${BLUE}Starting Ollama service...${NC}"
+    
+    if [[ "$OS" == "macos" ]]; then
+        # On macOS, try to start Ollama in the background
+        nohup ollama serve >/dev/null 2>&1 &
+        sleep 3
+    elif [[ "$OS" == "linux" ]]; then
+        # On Linux, start Ollama service
+        if command -v systemctl >/dev/null 2>&1; then
+            sudo systemctl start ollama
+            sudo systemctl enable ollama
+        else
+            nohup ollama serve >/dev/null 2>&1 &
+            sleep 3
+        fi
+    fi
+    
+    # Wait for service to be ready
+    local retries=10
+    while [ $retries -gt 0 ]; do
+        if check_ollama_running; then
+            echo -e "${GREEN}Ollama service is running!${NC}"
+            return 0
+        fi
+        sleep 2
+        retries=$((retries - 1))
+    done
+    
+    echo -e "${RED}Failed to start Ollama service${NC}"
+    return 1
+}
+
+# Function to download qwen3:8b model
+download_qwen3_model() {
+    echo -e "${BLUE}Downloading qwen3:8b model (this may take several minutes)...${NC}"
+    
+    if ollama pull qwen3:8b; then
+        echo -e "${GREEN}qwen3:8b model downloaded successfully!${NC}"
+    else
+        echo -e "${RED}Failed to download qwen3:8b model${NC}"
+        exit 1
+    fi
+}
+
 # Function to add or update environment variable in shell profile
 add_env_var() {
     local var_name="$1"
@@ -56,7 +164,8 @@ add_env_var() {
         read -p "Do you want to update it? (y/N): " update_var
         if [[ $update_var =~ ^[Yy]$ ]]; then
             # Remove existing line and add new one
-            sed -i "/^export $var_name=/d" "$SHELL_PROFILE"
+            # Use grep -v for cross-platform compatibility
+            grep -v "^export $var_name=" "$SHELL_PROFILE" > "$SHELL_PROFILE.tmp" && mv "$SHELL_PROFILE.tmp" "$SHELL_PROFILE"
             echo "export $var_name=\"$var_value\"" >> "$SHELL_PROFILE"
             echo -e "${GREEN}Updated $var_name in $SHELL_PROFILE${NC}"
         else
@@ -68,63 +177,149 @@ add_env_var() {
     fi
 }
 
+# Function to display current configuration status
+show_current_config() {
+    echo
+    echo -e "${BLUE}Current Configuration Status${NC}"
+    echo "============================"
+    
+    if check_env_var "OLLAMA_API_URL"; then
+        local current_url=$(get_env_var "OLLAMA_API_URL")
+        local current_model=$(get_env_var "OLLAMA_MODEL")
+        echo -e "${GREEN}✓${NC} Configuration found:"
+        echo -e "  API URL: ${YELLOW}$current_url${NC}"
+        echo -e "  Model: ${YELLOW}$current_model${NC}"
+        
+        if [[ "$current_url" == "http://localhost:11434" ]]; then
+            echo -e "  Type: ${YELLOW}Local Ollama${NC}"
+            if check_ollama_running; then
+                echo -e "  Status: ${GREEN}✓ Running${NC}"
+                if check_qwen3_model; then
+                    echo -e "  Model Status: ${GREEN}✓ qwen3:8b available${NC}"
+                else
+                    echo -e "  Model Status: ${RED}✗ qwen3:8b not found${NC}"
+                fi
+            else
+                echo -e "  Status: ${RED}✗ Not running${NC}"
+            fi
+        else
+            echo -e "  Type: ${YELLOW}Remote Ollama${NC}"
+        fi
+    else
+        echo -e "${RED}✗${NC} No configuration found"
+    fi
+    echo
+}
+
+# Function to setup local Ollama
+setup_local_ollama() {
+    echo -e "${BLUE}Setting up Local Ollama...${NC}"
+    
+    # Check if Ollama is already installed
+    if check_ollama_installed; then
+        echo -e "${GREEN}✓ Ollama is already installed${NC}"
+    else
+        install_ollama
+    fi
+    
+    # Check if Ollama service is running
+    if check_ollama_running; then
+        echo -e "${GREEN}✓ Ollama service is already running${NC}"
+    else
+        start_ollama_service
+    fi
+    
+    # Check if qwen3:8b model is available
+    if check_qwen3_model; then
+        echo -e "${GREEN}✓ qwen3:8b model is already available${NC}"
+    else
+        download_qwen3_model
+    fi
+    
+    # Set up environment variables for local Ollama
+    local api_url="http://localhost:11434"
+    local model="qwen3:8b"
+    
+    echo -e "${BLUE}Setting up environment variables...${NC}"
+    add_env_var "OLLAMA_API_URL" "$api_url"
+    add_env_var "OLLAMA_MODEL" "$model"
+    
+    # Set macOS local optimization flag
+    if [[ "$OS" == "macos" ]]; then
+        add_env_var "SMART_COMMIT_MACOS_LOCAL" "true"
+        echo -e "${YELLOW}Enabled macOS local optimization for better performance${NC}"
+    fi
+    
+    echo -e "${GREEN}Local Ollama setup complete!${NC}"
+    echo -e "${YELLOW}API URL: $api_url${NC}"
+    echo -e "${YELLOW}Model: $model${NC}"
+}
+
+# Function to setup remote Ollama
+setup_remote_ollama() {
+    echo -e "${BLUE}Setting up Remote Ollama server...${NC}"
+    read -p "Enter the IP address of your OLLAMA server (e.g., 192.168.1.2): " remote_ip
+    
+    # Validate IP address format (basic validation)
+    if [[ ! $remote_ip =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+        echo -e "${RED}Error: Invalid IP address format${NC}"
+        exit 1
+    fi
+    
+    local api_url="http://$remote_ip:11434"
+    local model="qwen3:8b"
+    
+    echo -e "${BLUE}Testing connection to remote server...${NC}"
+    if curl -s --max-time 10 "$api_url/api/tags" >/dev/null 2>&1; then
+        echo -e "${GREEN}✓ Successfully connected to remote Ollama server${NC}"
+    else
+        echo -e "${YELLOW}⚠ Warning: Could not connect to remote server (this is normal if the server is not running yet)${NC}"
+    fi
+    
+    echo -e "${BLUE}Setting up environment variables...${NC}"
+    add_env_var "OLLAMA_API_URL" "$api_url"
+    add_env_var "OLLAMA_MODEL" "$model"
+    
+    echo -e "${GREEN}Remote Ollama setup complete!${NC}"
+    echo -e "${YELLOW}API URL: $api_url${NC}"
+    echo -e "${YELLOW}Model: $model${NC}"
+}
+
 # Function to setup OLLAMA integration
 setup_ollama() {
     echo
     echo -e "${BLUE}OLLAMA Integration Setup${NC}"
     echo "========================"
-    echo
+    
+    # Show current configuration status
+    show_current_config
+    
     echo "Choose your OLLAMA integration type:"
-    echo "1) Remote OLLAMA server (point to existing server)"
-    echo "2) Embedded/Local solution (not implemented yet - will use remote for now)"
+    echo "1) Local Ollama (install and run locally)"
+    echo "2) Remote Ollama server (connect to existing server)"
+    echo "3) Keep current configuration (if any)"
     echo
     
-    read -p "Enter your choice (1-2): " ollama_choice
+    read -p "Enter your choice (1-3): " ollama_choice
     
     case $ollama_choice in
         1)
-            echo -e "${BLUE}Setting up remote OLLAMA server...${NC}"
-            read -p "Enter the IP address of your OLLAMA server (e.g., 192.168.1.2): " remote_ip
-            
-            # Validate IP address format (basic validation)
-            if [[ ! $remote_ip =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-                echo -e "${RED}Error: Invalid IP address format${NC}"
-                exit 1
-            fi
-            
-            local api_url="http://$remote_ip:11434"
-            local model="qwen3:8b"
-            
-            echo -e "${BLUE}Setting up environment variables...${NC}"
-            add_env_var "OLLAMA_API_URL" "$api_url"
-            add_env_var "OLLAMA_MODEL" "$model"
-            
-            echo -e "${GREEN}Remote OLLAMA setup complete!${NC}"
-            echo -e "${YELLOW}API URL: $api_url${NC}"
-            echo -e "${YELLOW}Model: $model${NC}"
+            setup_local_ollama
             ;;
         2)
-            echo -e "${YELLOW}Embedded/Local OLLAMA solution is not implemented yet.${NC}"
-            echo -e "${YELLOW}Falling back to remote setup...${NC}"
-            echo
-            read -p "Enter the IP address of your OLLAMA server (e.g., 192.168.1.2): " remote_ip
-            
-            # Validate IP address format (basic validation)
-            if [[ ! $remote_ip =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-                echo -e "${RED}Error: Invalid IP address format${NC}"
-                exit 1
+            setup_remote_ollama
+            ;;
+        3)
+            if check_env_var "OLLAMA_API_URL"; then
+                echo -e "${GREEN}Keeping current configuration${NC}"
+                local current_url=$(get_env_var "OLLAMA_API_URL")
+                local current_model=$(get_env_var "OLLAMA_MODEL")
+                echo -e "${YELLOW}API URL: $current_url${NC}"
+                echo -e "${YELLOW}Model: $current_model${NC}"
+            else
+                echo -e "${RED}No current configuration found. Please choose option 1 or 2.${NC}"
+                setup_ollama
             fi
-            
-            local api_url="http://$remote_ip:11434"
-            local model="qwen3:8b"
-            
-            echo -e "${BLUE}Setting up environment variables...${NC}"
-            add_env_var "OLLAMA_API_URL" "$api_url"
-            add_env_var "OLLAMA_MODEL" "$model"
-            
-            echo -e "${GREEN}OLLAMA setup complete!${NC}"
-            echo -e "${YELLOW}API URL: $api_url${NC}"
-            echo -e "${YELLOW}Model: $model${NC}"
             ;;
         *)
             echo -e "${RED}Error: Invalid choice${NC}"
