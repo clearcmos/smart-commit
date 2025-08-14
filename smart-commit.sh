@@ -4,12 +4,14 @@
 # Analyzes git changes and generates intelligent commit messages using Ollama
 
 # Configuration - can be overridden by environment variables
-OLLAMA_API_URL="${OLLAMA_API_URL:-http://192.168.1.2:11434}"
+OLLAMA_API_URL="${OLLAMA_API_URL:-http://localhost:11434}"
 OLLAMA_MODEL="${OLLAMA_MODEL:-qwen3:8b}"
+SMART_COMMIT_MACOS_LOCAL="${SMART_COMMIT_MACOS_LOCAL:-false}"
 
 # Command line options
 DRY_RUN=false
 FULL_MESSAGE=false
+ATOMIC_COMMITS=false
 
 # Portable log file location - use temp directory or user's home
 if [ -n "$XDG_CACHE_HOME" ]; then
@@ -32,10 +34,15 @@ while [[ $# -gt 0 ]]; do
             FULL_MESSAGE=true
             shift
             ;;
+        --atomic)
+            ATOMIC_COMMITS=true
+            shift
+            ;;
         -h|--help)
-            echo "Usage: $0 [--dry-run] [--full] [--help]"
+            echo "Usage: $0 [--dry-run] [--full] [--atomic] [--help]"
             echo "  --dry-run    Show the generated commit message without committing"
             echo "  --full       Generate full commit message without character limit truncation"
+            echo "  --atomic     Create one commit per modified file (professional workflow)"
             echo "  --help       Show this help message"
             exit 0
             ;;
@@ -176,11 +183,98 @@ get_git_diff() {
 
 
 
+# Function to generate truncated commit message (for macOS local optimization)
+generate_truncated_commit_message() {
+    local diff_content="$1"
+    local files_status="$2"
+    
+    # Truncate diff to first 200 lines for performance (same as full version)
+    local truncated_diff=$(echo "$diff_content" | head -200)
+    
+    # Simple, focused prompt for faster processing
+    local prompt="You are a Git expert. Generate a conventional commit message.
+
+## Git Changes:
+$truncated_diff
+
+## Instructions:
+1. Analyze the code changes above
+2. Write ONE commit message: type(scope): description  
+3. Keep under 72 characters
+4. Use present tense verbs
+5. Be specific about what changed
+
+## Types:
+- feat: new features
+- fix: bug fixes
+- refactor: code restructuring
+- docs: documentation
+- chore: maintenance
+
+## Your response:
+Write ONLY the commit message, nothing else:"
+
+    log "Using truncated prompt for macOS local optimization"
+    log "Truncated diff length: ${#truncated_diff} characters"
+    log "Prompt length: ${#prompt} characters"
+    
+    # Call Ollama API with truncated content
+    local temp_json=$(mktemp)
+    cat > "$temp_json" << EOF
+{
+    "model": "$OLLAMA_MODEL",
+    "prompt": $(echo "$prompt" | jq -R -s .),
+    "stream": false
+}
+EOF
+    
+    local response=$(curl -s --max-time 60 -X POST "$OLLAMA_API_URL/api/generate" \
+        -H "Content-Type: application/json" \
+        -d "@$temp_json")
+    
+    rm -f "$temp_json"
+    
+    # Extract commit message (simplified extraction)
+    local raw_response=$(echo "$response" | jq -r '.response' 2>/dev/null)
+    
+    if [ -z "$raw_response" ] || [ "$raw_response" = "null" ]; then
+        log "ERROR: Failed to get response from Ollama"
+        echo "chore: update files"
+        return
+    fi
+    
+    # Extract conventional commit pattern
+    local commit_message=$(echo "$raw_response" | grep -E '^(feat|fix|docs|style|refactor|test|chore|build|ci|perf|revert)' | head -1)
+    
+    # Clean up the message
+    if [ -n "$commit_message" ]; then
+        commit_message=$(echo "$commit_message" | sed 's/^["'\'']*//g' | sed 's/["'\'']*$//g' | sed 's/`//g' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+    else
+        # Fallback based on file analysis
+        if echo "$diff_content" | grep -q "^+.*def \|^+.*function \|^+.*class "; then
+            commit_message="feat: add new functionality"
+        elif echo "$diff_content" | grep -q "README\|\.md"; then
+            commit_message="docs: update documentation"
+        else
+            commit_message="chore: update files"
+        fi
+    fi
+    
+    log "Generated truncated commit message: '$commit_message'"
+    echo "$commit_message"
+}
+
 # Function to generate commit message using Ollama
 generate_commit_message() {
     local diff_content="$1"
     local files_status="$2"
     local use_full_message="$3"
+    
+    # Use truncated version for macOS local optimization (but not when --full flag is used)
+    if [ "$SMART_COMMIT_MACOS_LOCAL" = "true" ] && [ "$use_full_message" != "true" ]; then
+        generate_truncated_commit_message "$diff_content" "$files_status"
+        return
+    fi
     
     # Prepare an optimized prompt for qwen3:8b model
     local prompt="You are a Git expert. Generate a conventional commit message.
@@ -361,6 +455,117 @@ EOF
 }
 
 
+# Function to get per-file diff analysis
+get_file_diff() {
+    local file="$1"
+    local analysis_content=""
+    local temp_file=$(mktemp)
+    
+    # Build file analysis
+    echo "=== FILE CHANGED ===" >> "$temp_file"
+    
+    # Get file status
+    if git ls-files --error-unmatch "$file" >/dev/null 2>&1; then
+        # File is tracked, check if modified or deleted
+        if [ -f "$file" ]; then
+            echo "MODIFIED: $file - $(analyze_file_changes "$file" "modified")" >> "$temp_file"
+        else
+            echo "DELETED: $file" >> "$temp_file"
+        fi
+    else
+        # File is untracked (new)
+        if [ -f "$file" ]; then
+            echo "NEW: $file - $(analyze_file_changes "$file" "new")" >> "$temp_file"
+        fi
+    fi
+    
+    # Include actual diff content
+    echo "" >> "$temp_file"
+    echo "=== ACTUAL CHANGES ===" >> "$temp_file"
+    
+    if [ -f "$file" ]; then
+        if git ls-files --error-unmatch "$file" >/dev/null 2>&1; then
+            # Tracked file - show diff
+            git diff HEAD -- "$file" >> "$temp_file"
+        else
+            # Untracked file - show content
+            echo "New file content:" >> "$temp_file"
+            head -100 "$file" >> "$temp_file"
+        fi
+    else
+        # Deleted file
+        git diff HEAD -- "$file" >> "$temp_file"
+    fi
+    
+    # Read the complete analysis
+    analysis_content=$(cat "$temp_file")
+    rm -f "$temp_file"
+    
+    echo "$analysis_content"
+}
+
+# Function to handle atomic commits (one commit per file)
+handle_atomic_commits() {
+    echo -e "${BLUE}Atomic commit mode - creating one commit per file...${NC}"
+    
+    # Get list of changed files
+    local changed_files=$(git status --porcelain | sed 's/^...//')
+    
+    if [ -z "$changed_files" ]; then
+        echo -e "${YELLOW}No changes to commit${NC}"
+        exit 0
+    fi
+    
+    # Process each file individually
+    while IFS= read -r file; do
+        [ -z "$file" ] && continue
+        
+        echo
+        echo -e "${BLUE}Processing file: ${YELLOW}$file${NC}"
+        
+        # Stage only this file
+        git add "$file"
+        
+        # Get diff analysis for this file only
+        local file_diff=$(get_file_diff "$file")
+        
+        # Generate commit message for this file
+        local commit_message
+        if [ "$ATOMIC_COMMITS" = "true" ] && [ "$DRY_RUN" = "true" ]; then
+            echo -e "${BLUE}Generating commit message for $file...${NC}"
+        elif [ "$DRY_RUN" = "false" ]; then
+            echo -e "${BLUE}Generating commit message for $file...${NC}"
+        fi
+        
+        commit_message=$(generate_commit_message "$file_diff" "" "$FULL_MESSAGE")
+        
+        if [ "$DRY_RUN" = "true" ]; then
+            echo -e "${GREEN}File: ${YELLOW}$file${NC}"
+            echo -e "${GREEN}Generated commit message:${NC} \"$commit_message\""
+        else
+            # Commit this file
+            if git commit -m "$commit_message"; then
+                echo -e "${GREEN}✓ Committed: $file${NC}"
+                echo -e "  Message: \"$commit_message\""
+            else
+                echo -e "${RED}✗ Failed to commit: $file${NC}"
+            fi
+        fi
+        
+    done <<< "$changed_files"
+    
+    if [ "$DRY_RUN" = "false" ]; then
+        echo
+        echo -e "${GREEN}All files committed individually!${NC}"
+        
+        # Push all commits
+        push_changes
+    else
+        echo
+        echo -e "${YELLOW}Dry run complete - no commits made${NC}"
+    fi
+}
+
 # Function to stage all changes
 stage_changes() {
     echo -e "${BLUE}Staging all changes...${NC}"
@@ -449,6 +654,13 @@ main() {
     log "Starting main execution flow..."
     check_git_repo
     check_git_status
+    
+    # Handle atomic commits if requested
+    if [ "$ATOMIC_COMMITS" = "true" ]; then
+        log "Atomic commits mode enabled"
+        handle_atomic_commits
+        return
+    fi
     
     # Get current status and diff
     if [ "$DRY_RUN" = false ]; then
