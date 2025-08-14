@@ -9,6 +9,7 @@ OLLAMA_MODEL="${OLLAMA_MODEL:-qwen3:8b}"
 
 # Command line options
 DRY_RUN=false
+FULL_MESSAGE=false
 
 # Portable log file location - use temp directory or user's home
 if [ -n "$XDG_CACHE_HOME" ]; then
@@ -27,9 +28,14 @@ while [[ $# -gt 0 ]]; do
             DRY_RUN=true
             shift
             ;;
+        --full)
+            FULL_MESSAGE=true
+            shift
+            ;;
         -h|--help)
-            echo "Usage: $0 [--dry-run] [--help]"
+            echo "Usage: $0 [--dry-run] [--full] [--help]"
             echo "  --dry-run    Show the generated commit message without committing"
+            echo "  --full       Generate full commit message without character limit truncation"
             echo "  --help       Show this help message"
             exit 0
             ;;
@@ -59,7 +65,7 @@ init_log() {
     mkdir -p "$LOG_DIR" 2>/dev/null
     # Overwrite log file each run (no history kept)
     echo "=== Smart Git Commit Tool Log - $(date) ===" > "$LOG_FILE"
-    log "Starting smart-commit.sh with DRY_RUN=$DRY_RUN"
+    log "Starting smart-commit.sh with DRY_RUN=$DRY_RUN, FULL_MESSAGE=$FULL_MESSAGE"
     log "Log file: $LOG_FILE"
     log "Working directory: $(pwd)"
 }
@@ -155,7 +161,7 @@ get_git_diff() {
     if [ -n "$combined_diff" ]; then
         echo "" >> "$temp_file"
         echo "=== ACTUAL CHANGES ===" >> "$temp_file"
-        echo "$combined_diff" | head -100 >> "$temp_file"
+        echo "$combined_diff" | head -200 >> "$temp_file"
     fi
     
     # Read the complete analysis
@@ -174,6 +180,7 @@ get_git_diff() {
 generate_commit_message() {
     local diff_content="$1"
     local files_status="$2"
+    local use_full_message="$3"
     
     # Prepare an optimized prompt for qwen3:8b model
     local prompt="You are a Git expert. Generate a conventional commit message.
@@ -182,10 +189,13 @@ generate_commit_message() {
 $diff_content
 
 ## Instructions:
-1. Analyze the changes above
+1. Carefully analyze the actual code changes above
 2. Write ONE commit message in this exact format: type(scope): description
 3. Keep it under 72 characters
 4. Use present tense verbs
+5. Make the description SPECIFIC about what actually changed in the code
+6. CRITICAL: For scope, you MUST use the top-level directory name from file paths
+7. Look at file paths like 'gam/delegate-config/file.py' → scope MUST be 'gam'
 
 ## Types:
 - feat: new features
@@ -195,13 +205,30 @@ $diff_content
 - docs: documentation
 - chore: maintenance/config
 
+## Description Guidelines:
+- Analyze ALL changes: both code modifications AND file additions/deletions
+- For new documentation files: mention them explicitly like 'add README.md'
+- For code changes: be specific about functions, methods, algorithms modified
+- For mixed changes: mention both documentation and code improvements
+- Prioritize the most significant change but include secondary changes when possible
+- Avoid generic terms like 'implement features' or 'update code'
+
+## SCOPE RULES (MANDATORY):
+- Extract ONLY the first directory from file paths
+- Examples: 'gam/delegate-config/file.py' → scope = 'gam'
+- Examples: 'src/auth/login.js' → scope = 'src'
+- Examples: 'docs/api/readme.md' → scope = 'docs'
+- NEVER use subdirectory names like 'delegate-config' or 'auth'
+- ALWAYS use the top-level directory name
+
 ## Examples:
-feat(auth): add user login
-fix(parser): handle null values
-perf(api): optimize database queries
-refactor(ui): simplify components
-docs(readme): update installation steps
-chore(deps): update dependencies
+feat(auth): add JWT token validation
+fix(parser): handle null values in CSV reader
+perf(api): optimize database query caching
+refactor(gam): improve path detection algorithm
+docs(gam): add CLAUDE.md and improve path detection
+docs(readme): add installation requirements
+chore(deps): update eslint to v8.0
 
 ## Your response:
 Write ONLY the commit message, nothing else:"
@@ -271,8 +298,8 @@ EOF
         log "Cleaned commit message: '$commit_message'"
     fi
     
-    # Smart length management
-    if [ ${#commit_message} -gt 72 ]; then
+    # Smart length management (skip if using full message mode)
+    if [ "$use_full_message" != "true" ] && [ ${#commit_message} -gt 72 ]; then
         log "Warning: Generated message is ${#commit_message} characters (over 72 char limit)"
         
         # Try intelligent shortening first
@@ -441,7 +468,7 @@ main() {
     if [ "$DRY_RUN" = false ]; then
         echo -e "${BLUE}Analyzing changes and generating commit message...${NC}"
     fi
-    local commit_message=$(generate_commit_message "$diff_content" "$files_status")
+    local commit_message=$(generate_commit_message "$diff_content" "$files_status" "$FULL_MESSAGE")
     log "Generated commit message: '$commit_message'"
     
     # Handle dry run mode
