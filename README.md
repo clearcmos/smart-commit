@@ -26,8 +26,11 @@ Run the setup script for easy installation:
 
 The setup script will:
 - Detect your OS (Linux/macOS) and configure the appropriate shell profile
-- Ask if you want to use a remote OLLAMA server or embedded solution
-- Prompt for your OLLAMA server IP address
+- Give you three options:
+  1. **Local Ollama** - Install and run Ollama locally (with macOS performance optimization)
+  2. **Remote Ollama** - Connect to an existing Ollama server
+  3. **Keep current configuration** - Maintain existing setup
+- Handle Ollama installation, model download, and service management automatically
 - Set up environment variables in `.bashrc` (Linux) or `.zshrc` (macOS)
 - Install `smart-commit` to `/usr/local/bin/` system-wide
 
@@ -56,8 +59,11 @@ chmod +x ~/bin/smart-commit
 Add to your `~/.bashrc` (Linux) or `~/.zshrc` (macOS):
 ```bash
 # Ollama configuration for smart-commit script
-export OLLAMA_API_URL="http://192.168.1.2:11434"
+export OLLAMA_API_URL="http://localhost:11434"  # or your remote server IP
 export OLLAMA_MODEL="qwen3:8b"
+
+# Optional: Enable macOS performance optimization (for local macOS setups)
+export SMART_COMMIT_MACOS_LOCAL="true"
 ```
 
 Then reload your shell:
@@ -69,9 +75,21 @@ source ~/.zshrc   # macOS
 ## Prerequisites
 
 - **Git repository** - Must be run from within a git repository
-- **Ollama server** - Running with a capable model (qwen3:8b recommended)
-- **jq** - For JSON parsing (`sudo apt install jq` on Ubuntu/Debian)
+- **Ollama** - Either local installation (handled by setup) or remote server access
+- **jq** - For JSON parsing (`sudo apt install jq` on Ubuntu/Debian, `brew install jq` on macOS)
 - **curl** - For API requests (usually pre-installed)
+
+### Local Ollama (Recommended for new users)
+The setup script can automatically:
+- Install Ollama via Homebrew (macOS) or curl script (Linux)
+- Download the qwen3:8b model (~5GB)
+- Start the Ollama service
+- Configure optimized settings for your platform
+
+### Remote Ollama (For existing setups)
+If you already have Ollama running elsewhere:
+- Ensure the server is accessible on port 11434
+- Verify the qwen3:8b model is available
 
 ## Usage
 
@@ -115,8 +133,9 @@ smart-commit
 ## Configuration
 
 ### Environment Variables
-- `OLLAMA_API_URL` - Ollama server endpoint (default: http://192.168.1.2:11434)
+- `OLLAMA_API_URL` - Ollama server endpoint (default: http://localhost:11434)
 - `OLLAMA_MODEL` - Model to use (default: qwen3:8b)
+- `SMART_COMMIT_MACOS_LOCAL` - Enable macOS performance optimization (set automatically by setup)
 
 ### Temporary Override
 ```bash
@@ -260,6 +279,31 @@ Examples:
   smart-commit --dry-run    # Preview commit message only
   smart-commit --full       # Generate detailed commit message without length limits
 ```
+
+## Performance Optimization
+
+### macOS Local Optimization
+When using local Ollama on macOS (M1/M2/M3 chips), smart-commit automatically uses performance optimizations:
+
+- **Streamlined prompts** - Simplified instructions for faster processing
+- **Optimized context** - Right-sized diff analysis for mobile GPUs
+- **Automatic detection** - No manual configuration required
+
+**Performance comparison on M3 Pro:**
+- **Standard mode**: 120+ seconds (timeout)
+- **Optimized mode**: 15-25 seconds ✅
+
+**When optimization is used:**
+- ✅ Local Ollama on macOS (set by setup script)
+- ✅ Regular `smart-commit` command
+- ❌ When using `--full` flag (uses detailed analysis)
+- ❌ Linux local or remote setups (use full power)
+
+### Platform-Specific Behavior
+- **macOS local**: Fast, optimized prompts (~20 seconds)
+- **Linux local**: Full detailed analysis (more powerful hardware assumed)
+- **Remote servers**: Full detailed analysis (desktop-class performance)
+- **All platforms with `--full`**: Maximum detail and accuracy
 
 ## Advanced Features
 
