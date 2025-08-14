@@ -104,11 +104,16 @@ smart-commit --dry-run
 # Generate full commit message without character limit
 smart-commit --full
 
+# Create one commit per modified file (professional workflow)
+smart-commit --atomic
+
 # Show help
 smart-commit --help
 ```
 
 ### Example Workflow
+
+#### Traditional Single Commit
 ```bash
 # Make your changes
 git add .
@@ -119,6 +124,35 @@ smart-commit --dry-run
 
 # If satisfied, commit and push
 smart-commit
+```
+
+#### Professional Atomic Commits
+```bash
+# Make changes to multiple files
+# Modified: auth.js, login.html, README.md
+
+# Create atomic commits (one per file) with validation
+smart-commit --atomic
+
+# Output:
+# Processing file: auth.js
+# ✓ Committed: auth.js
+#   Message: "feat(auth): add JWT token validation with expiry handling"
+# 
+# Processing file: login.html  
+# ✓ Committed: login.html
+#   Message: "feat(ui): add login form validation feedback"
+#
+# Processing file: README.md
+# ✓ Committed: README.md  
+#   Message: "docs: update authentication setup instructions"
+#
+# === Commit Summary ===
+# 1) auth.js - feat(auth): add JWT token validation with expiry handling
+# 2) login.html - feat(ui): add login form validation feedback  
+# 3) README.md - docs: update authentication setup instructions
+#
+# [ENTER to push, 1-3 to edit, c to cancel]: 
 ```
 
 ## How It Works
@@ -267,17 +301,48 @@ Logs are stored at `~/.cache/smart-commit.log` and overwritten on each run. The 
 ## Command Line Options
 
 ```
-Usage: smart-commit [--dry-run] [--full] [--help]
+Usage: smart-commit [--dry-run] [--full] [--atomic] [--help]
 
 Options:
   --dry-run    Show the generated commit message without committing
   --full       Generate full commit message without character limit truncation
+  --atomic     Create one commit per modified file (professional workflow)
   --help       Show help message and exit
 
 Examples:
   smart-commit              # Analyze, commit, and push changes
   smart-commit --dry-run    # Preview commit message only
   smart-commit --full       # Generate detailed commit message without length limits
+  smart-commit --atomic     # Create atomic commits with validation workflow
+  smart-commit --atomic --dry-run  # Preview atomic commit messages
+```
+
+## Atomic Commits Workflow
+
+The `--atomic` flag creates professional, focused commits:
+
+### Benefits
+- **Better code review** - Each commit represents one logical change
+- **Cleaner git history** - Easy to understand project evolution  
+- **Selective rollbacks** - Revert specific features without affecting others
+- **Improved accuracy** - Single-file context generates better commit messages
+
+### Validation Process
+After generating all commits, you can:
+- **ENTER** - Accept all commits and push to remote
+- **1-N** - Edit specific commit messages before pushing
+- **c** - Cancel push (keeps commits local)
+
+### Flag Combinations
+```bash
+# Atomic commits with macOS optimization
+smart-commit --atomic
+
+# Atomic commits with full analysis (all platforms)  
+smart-commit --atomic --full
+
+# Preview atomic commits without committing
+smart-commit --atomic --dry-run
 ```
 
 ## Performance Optimization
@@ -300,10 +365,20 @@ When using local Ollama on macOS (M1/M2/M3 chips), smart-commit automatically us
 - ❌ Linux local or remote setups (use full power)
 
 ### Platform-Specific Behavior
-- **macOS local**: Fast, optimized prompts (~20 seconds)
+- **macOS local**: Fast, optimized prompts (~15-25 seconds) with progressive truncation
 - **Linux local**: Full detailed analysis (more powerful hardware assumed)
 - **Remote servers**: Full detailed analysis (desktop-class performance)
 - **All platforms with `--full`**: Maximum detail and accuracy
+
+### Progressive Optimization (macOS Local)
+Smart-commit automatically adjusts analysis depth based on change complexity:
+
+- **Small changes** (<4KB): Full analysis for perfect accuracy
+- **Medium changes** (4-7KB): Balanced analysis (150 lines of diff)
+- **Large changes** (>7KB): Smart truncation focusing on key patterns
+  - Early context (first 80 lines)
+  - Function/class definitions
+  - Import/export statements
 
 ## Advanced Features
 
