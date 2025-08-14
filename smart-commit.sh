@@ -183,13 +183,41 @@ get_git_diff() {
 
 
 
+# Function to get smart truncation for large files (macOS optimization)
+get_smart_truncation() {
+    local content="$1"
+    
+    # Get first 80 lines (early context)
+    echo "$content" | head -80
+    echo ""
+    echo "... [content truncated for performance] ..."
+    echo ""
+    # Get lines with function/class definitions for context
+    echo "$content" | grep -E "^[+-].*(function|def|class|const|let|var|export|import)" | head -20
+}
+
 # Function to generate truncated commit message (for macOS local optimization)
 generate_truncated_commit_message() {
     local diff_content="$1"
     local files_status="$2"
     
-    # Truncate diff to first 200 lines for performance (same as full version)
-    local truncated_diff=$(echo "$diff_content" | head -200)
+    # Progressive truncation based on content size
+    local truncated_diff
+    local diff_size=${#diff_content}
+    
+    if [ $diff_size -lt 4000 ]; then
+        # Small changes: Use full diff
+        truncated_diff="$diff_content"
+        log "Small diff: using full content ($diff_size chars)"
+    elif [ $diff_size -lt 7000 ]; then
+        # Medium changes: Use first 150 lines
+        truncated_diff=$(echo "$diff_content" | head -150)
+        log "Medium diff: using 150 lines (from $diff_size chars)"
+    else
+        # Large changes: Use smart truncation
+        truncated_diff=$(get_smart_truncation "$diff_content")
+        log "Large diff: using smart truncation (from $diff_size chars)"
+    fi
     
     # Simple, focused prompt for faster processing
     local prompt="You are a Git expert. Generate a conventional commit message.
@@ -504,6 +532,118 @@ get_file_diff() {
     echo "$analysis_content"
 }
 
+# Function to validate and optionally edit commits before pushing
+validate_commits() {
+    local commit_list=("$@")
+    local commit_count=${#commit_list[@]}
+    
+    if [ $commit_count -eq 0 ]; then
+        echo -e "${YELLOW}No commits to validate${NC}"
+        return
+    fi
+    
+    echo
+    echo -e "${BLUE}=== Commit Summary ===${NC}"
+    echo "The following commits were created:"
+    echo
+    
+    # Display all commits
+    for i in $(seq 0 $((commit_count - 1))); do
+        local commit_info="${commit_list[$i]}"
+        local file=$(echo "$commit_info" | cut -d'|' -f1)
+        local message=$(echo "$commit_info" | cut -d'|' -f2)
+        local hash=$(echo "$commit_info" | cut -d'|' -f3)
+        
+        printf "%d) %s\n   %s\n   [%s]\n\n" $((i + 1)) "$file" "$message" "$hash"
+    done
+    
+    echo -e "${YELLOW}Options:${NC}"
+    echo "  ENTER - Accept all commits and push"
+    echo "  1-$commit_count - Edit specific commit message"  
+    echo "  c - Cancel (keep commits but don't push)"
+    echo
+    
+    while true; do
+        read -p "Your choice [ENTER/1-$commit_count/c]: " choice
+        
+        case "$choice" in
+            "")
+                # Accept all and push
+                echo -e "${GREEN}Pushing all commits...${NC}"
+                push_changes
+                return
+                ;;
+            [1-9]|[1-9][0-9])
+                if [ "$choice" -ge 1 ] && [ "$choice" -le $commit_count ]; then
+                    edit_commit_message "$choice" commit_list
+                else
+                    echo -e "${RED}Invalid selection. Please choose 1-$commit_count${NC}"
+                fi
+                ;;
+            [Cc])
+                echo -e "${YELLOW}Cancelled. Commits remain local (not pushed).${NC}"
+                return
+                ;;
+            *)
+                echo -e "${RED}Invalid option. Please choose ENTER, 1-$commit_count, or 'c'${NC}"
+                ;;
+        esac
+    done
+}
+
+# Function to edit a specific commit message
+edit_commit_message() {
+    local selection="$1"
+    local -n commits_ref="$2"
+    local index=$((selection - 1))
+    
+    local commit_info="${commits_ref[$index]}"
+    local file=$(echo "$commit_info" | cut -d'|' -f1)
+    local current_message=$(echo "$commit_info" | cut -d'|' -f2)
+    local hash=$(echo "$commit_info" | cut -d'|' -f3)
+    
+    echo
+    echo -e "${BLUE}Editing commit for: ${YELLOW}$file${NC}"
+    echo -e "Current message: ${YELLOW}\"$current_message\"${NC}"
+    echo
+    read -p "Enter new commit message: " new_message
+    
+    if [ -n "$new_message" ]; then
+        # Amend the commit
+        git reset --soft HEAD~$((${#commits_ref[@]} - index))
+        git commit -m "$new_message"
+        
+        # Re-apply any commits that came after this one
+        for i in $(seq $((index + 1)) $((${#commits_ref[@]} - 1))); do
+            local later_commit="${commits_ref[$i]}"
+            local later_file=$(echo "$later_commit" | cut -d'|' -f1)
+            local later_message=$(echo "$later_commit" | cut -d'|' -f2)
+            git add "$later_file"
+            git commit -m "$later_message"
+        done
+        
+        # Update the commit info
+        local new_hash=$(git rev-parse HEAD~$((${#commits_ref[@]} - index - 1)))
+        commits_ref[$index]="$file|$new_message|$new_hash"
+        
+        echo -e "${GREEN}✓ Commit updated${NC}"
+        
+        # Ask if they want to edit any others
+        echo
+        read -p "Edit another commit? [ENTER to continue, 1-${#commits_ref[@]} to edit]: " next_choice
+        
+        if [ -n "$next_choice" ] && [ "$next_choice" -ge 1 ] && [ "$next_choice" -le ${#commits_ref[@]} ]; then
+            edit_commit_message "$next_choice" commits_ref
+        else
+            echo -e "${GREEN}Pushing all commits...${NC}"
+            push_changes
+        fi
+    else
+        echo -e "${YELLOW}No changes made${NC}"
+        validate_commits "${commits_ref[@]}"
+    fi
+}
+
 # Function to handle atomic commits (one commit per file)
 handle_atomic_commits() {
     echo -e "${BLUE}Atomic commit mode - creating one commit per file...${NC}"
@@ -515,6 +655,9 @@ handle_atomic_commits() {
         echo -e "${YELLOW}No changes to commit${NC}"
         exit 0
     fi
+    
+    # Array to store commit info for validation
+    local commit_info_list=()
     
     # Process each file individually
     while IFS= read -r file; do
@@ -545,8 +688,12 @@ handle_atomic_commits() {
         else
             # Commit this file
             if git commit -m "$commit_message"; then
+                local commit_hash=$(git rev-parse HEAD)
                 echo -e "${GREEN}✓ Committed: $file${NC}"
                 echo -e "  Message: \"$commit_message\""
+                
+                # Store commit info for validation
+                commit_info_list+=("$file|$commit_message|$commit_hash")
             else
                 echo -e "${RED}✗ Failed to commit: $file${NC}"
             fi
@@ -558,8 +705,8 @@ handle_atomic_commits() {
         echo
         echo -e "${GREEN}All files committed individually!${NC}"
         
-        # Push all commits
-        push_changes
+        # Validate commits before pushing
+        validate_commits "${commit_info_list[@]}"
     else
         echo
         echo -e "${YELLOW}Dry run complete - no commits made${NC}"
