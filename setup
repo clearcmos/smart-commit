@@ -183,6 +183,7 @@ main() {
     echo "Usage examples:"
     echo "  smart-commit              # Analyze changes and commit"
     echo "  smart-commit --dry-run    # Preview commit message without committing"
+    echo "  smart-commit --full       # Generate detailed commit message without length limits"
     echo "  smart-commit --help       # Show help"
 }
 

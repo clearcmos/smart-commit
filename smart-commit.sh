@@ -208,10 +208,12 @@ $diff_content
 ## Description Guidelines:
 - Analyze ALL changes: both code modifications AND file additions/deletions
 - For new documentation files: mention them explicitly like 'add README.md'
+- For README/docs updates: look for NEW features, options, examples, or functionality being documented
 - For code changes: be specific about functions, methods, algorithms modified
-- For mixed changes: mention both documentation and code improvements
-- Prioritize the most significant change but include secondary changes when possible
-- Avoid generic terms like 'implement features' or 'update code'
+- For small changes: focus on what specific functionality was added/modified, not generic descriptions
+- Pay special attention to lines starting with '+' as they show new content
+- Avoid generic terms like 'implement features', 'update code', 'add new feature'
+- When you see new options, commands, or features, mention them specifically
 
 ## SCOPE RULES (MANDATORY):
 - Extract ONLY the first directory from file paths
@@ -227,6 +229,7 @@ fix(parser): handle null values in CSV reader
 perf(api): optimize database query caching
 refactor(gam): improve path detection algorithm
 docs(gam): add CLAUDE.md and improve path detection
+docs: add new CLI option documentation
 docs(readme): add installation requirements
 chore(deps): update eslint to v8.0
 

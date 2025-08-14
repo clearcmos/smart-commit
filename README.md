@@ -4,7 +4,7 @@ An intelligent bash script that analyzes your git changes and generates meaningf
 
 ## Features
 
-- 🤖 **AI-Powered Analysis** - Uses Ollama models to understand your code changes with semantic analysis
+- 🤖 **AI-Powered Analysis** - Uses Ollama models to understand your code changes with intelligent analysis
 - 📝 **Conventional Commits** - Generates properly formatted commit messages (feat:, fix:, perf:, etc.)
 - 🎯 **Context-Aware** - Considers recent commit history for consistent messaging style
 - ⚡ **Smart Validation** - Automatically improves and shortens messages when needed
@@ -82,6 +82,9 @@ smart-commit
 
 # Preview commit message without committing
 smart-commit --dry-run
+
+# Generate full commit message without character limit
+smart-commit --full
 
 # Show help
 smart-commit --help
@@ -245,15 +248,17 @@ Logs are stored at `~/.cache/smart-commit.log` and overwritten on each run. The 
 ## Command Line Options
 
 ```
-Usage: smart-commit [--dry-run] [--help]
+Usage: smart-commit [--dry-run] [--full] [--help]
 
 Options:
   --dry-run    Show the generated commit message without committing
+  --full       Generate full commit message without character limit truncation
   --help       Show help message and exit
 
 Examples:
   smart-commit              # Analyze, commit, and push changes
   smart-commit --dry-run    # Preview commit message only
+  smart-commit --full       # Generate detailed commit message without length limits
 ```
 
 ## Advanced Features
