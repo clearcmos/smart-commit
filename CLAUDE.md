@@ -55,8 +55,11 @@ The script operates in two modes based on environment detection:
 #### Optimized Mode (macOS Local)
 - **Trigger**: `SMART_COMMIT_MACOS_LOCAL=true` AND not using `--full` flag
 - **Function**: `generate_truncated_commit_message()`
-- **Diff Limit**: 200 lines (vs full diff)
-- **Prompt**: Simplified, focused instructions (~6,000 chars)
+- **Progressive Truncation**: 
+  - Small files (<4KB): Full diff
+  - Medium files (4-7KB): 150 lines
+  - Large files (>7KB): Smart truncation (80 lines + key patterns)
+- **Prompt**: Simplified, focused instructions (~4,000-7,000 chars)
 - **Performance**: ~15-25 seconds on M3 Pro
 - **Timeout**: 60 seconds
 
@@ -71,24 +74,30 @@ The script operates in two modes based on environment detection:
 ### Key Functions
 
 #### Analysis Functions
-- `get_git_diff()` - Extracts and formats git changes
+- `get_git_diff()` - Extracts and formats git changes for multi-file commits
+- `get_file_diff()` - Extracts diff for single file (atomic commits)
+- `get_smart_truncation()` - Progressive truncation for large files (macOS)
 - `analyze_file_changes()` - Counts additions/deletions per file
 - `check_git_repo()` / `check_git_status()` - Validation functions
 
 #### Message Generation
 - `generate_commit_message()` - Full analysis with verbose prompt
-- `generate_truncated_commit_message()` - Optimized for mobile GPUs
+- `generate_truncated_commit_message()` - Optimized for mobile GPUs with progressive truncation
 - Automatic fallbacks for API failures
 - Multiple extraction strategies for AI responses
 
 #### Workflow Functions
-- `stage_changes()` - Stages all changes
-- `commit_changes()` - Interactive commit with confirmation
+- `stage_changes()` - Stages all changes (traditional mode)
+- `commit_changes()` - Interactive commit with confirmation (traditional mode)
+- `handle_atomic_commits()` - Creates one commit per file with validation
+- `validate_commits()` - Review and edit commits before pushing
+- `edit_commit_message()` - Interactive commit message editing
 - `push_changes()` - Handles upstream branch creation
 
 ### Command Line Interface
 - `--dry-run` - Preview mode, no commits
 - `--full` - Force detailed analysis (bypasses optimization)
+- `--atomic` - Create one commit per modified file with validation
 - `--help` - Usage information
 
 ## Performance Characteristics
