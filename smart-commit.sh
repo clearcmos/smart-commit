@@ -292,7 +292,31 @@ EOF
     echo "$commit_message"
 }
 
-# Function to generate commit message using Ollama
+# Function to calculate adaptive timeout based on content complexity
+calculate_adaptive_timeout() {
+    local diff_content="$1"
+    local base_timeout=120
+    
+    # Calculate complexity factors
+    local content_size=${#diff_content}
+    local line_count=$(echo "$diff_content" | wc -l)
+    local script_indicators=$(echo "$diff_content" | grep -c "function\|if\|for\|while\|case\|do\|done\|^\+.*def \|^\+.*class " || echo 0)
+    
+    log "Content analysis: size=$content_size chars, lines=$line_count, complexity_indicators=$script_indicators"
+    
+    # Adaptive timeout calculation
+    if [ $content_size -lt 2000 ]; then
+        echo $base_timeout  # Simple files: 120s
+    elif [ $content_size -lt 5000 ] && [ $script_indicators -lt 10 ]; then
+        echo $((base_timeout + 60))  # Medium files: 180s
+    elif [ $content_size -lt 8000 ] || [ $script_indicators -gt 15 ]; then
+        echo $((base_timeout + 120))  # Complex files: 240s (4 min)
+    else
+        echo $((base_timeout + 180))  # Very complex: 300s (5 min)
+    fi
+}
+
+# Function to generate commit message using Ollama with adaptive timeout and fallback
 generate_commit_message() {
     local diff_content="$1"
     local files_status="$2"
@@ -300,9 +324,14 @@ generate_commit_message() {
     
     # Use truncated version for macOS local optimization (but not when --full flag is used)
     if [ "$SMART_COMMIT_MACOS_LOCAL" = "true" ] && [ "$use_full_message" != "true" ]; then
+        log "Using macOS local optimization (truncated mode)"
         generate_truncated_commit_message "$diff_content" "$files_status"
         return
     fi
+    
+    # Calculate adaptive timeout for this content
+    local adaptive_timeout=$(calculate_adaptive_timeout "$diff_content")
+    log "Using adaptive timeout: ${adaptive_timeout}s for content complexity"
     
     # Prepare an optimized prompt for qwen3:8b model
     local prompt="You are a Git expert. Generate a conventional commit message.
@@ -342,8 +371,9 @@ $diff_content
 - Examples: 'gam/delegate-config/file.py' → scope = 'gam'
 - Examples: 'src/auth/login.js' → scope = 'src'
 - Examples: 'docs/api/readme.md' → scope = 'docs'
+- Examples: 'script.sh' (root level) → NO scope, format: 'type: description'
 - NEVER use subdirectory names like 'delegate-config' or 'auth'
-- ALWAYS use the top-level directory name
+- ALWAYS use the top-level directory name, OR no scope if file is in root
 
 ## Examples:
 feat(auth): add JWT token validation
@@ -354,6 +384,7 @@ docs(gam): add CLAUDE.md and improve path detection
 docs: add new CLI option documentation
 docs(readme): add installation requirements
 chore(deps): update eslint to v8.0
+perf: add adaptive timeout handling for complex files
 
 ## Your response:
 Write ONLY the commit message, nothing else:"
@@ -366,7 +397,7 @@ Write ONLY the commit message, nothing else:"
     # Call Ollama API
     # Note: Status message moved outside of function to avoid output capture
     
-    log "Making curl request to Ollama..."
+    log "Making curl request to Ollama with ${adaptive_timeout}s timeout..."
     # Create a temporary file with the JSON payload to avoid escaping issues
     local temp_json=$(mktemp)
     cat > "$temp_json" << EOF
@@ -377,11 +408,21 @@ Write ONLY the commit message, nothing else:"
 }
 EOF
     
-    local response=$(curl -s --max-time 120 -X POST "$OLLAMA_API_URL/api/generate" \
+    local response=$(curl -s --max-time "$adaptive_timeout" -X POST "$OLLAMA_API_URL/api/generate" \
         -H "Content-Type: application/json" \
         -d "@$temp_json")
     
     rm -f "$temp_json"
+    
+    # Check if request timed out or failed
+    local curl_exit_code=$?
+    if [ $curl_exit_code -eq 28 ] || [ -z "$response" ]; then
+        log "TIMEOUT: Full analysis timed out after ${adaptive_timeout}s, falling back to truncated mode"
+        log "Curl exit code: $curl_exit_code"
+        echo -e "${YELLOW}⚠ Complex file detected - using optimized analysis mode${NC}" >&2
+        generate_truncated_commit_message "$diff_content" "$files_status"
+        return
+    fi
     
     log "Curl request completed. Response length: ${#response} characters"
     log "Raw response: $response"
@@ -478,6 +519,7 @@ EOF
         log "Using intelligent fallback: '$commit_message'"
     fi
     
+    log "SUCCESS: Full analysis completed with adaptive timeout (${adaptive_timeout}s)"
     log "Final commit message: '$commit_message'"
     echo "$commit_message"
 }
@@ -659,12 +701,18 @@ handle_atomic_commits() {
     # Array to store commit info for validation
     local commit_info_list=()
     
+    # Reset staging area to ensure clean start
+    git reset --quiet
+    
     # Process each file individually
     while IFS= read -r file; do
         [ -z "$file" ] && continue
         
         echo
         echo -e "${BLUE}Processing file: ${YELLOW}$file${NC}"
+        
+        # Reset staging area before processing each file
+        git reset --quiet
         
         # Stage only this file
         git add "$file"
