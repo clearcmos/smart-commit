@@ -210,7 +210,33 @@ class GitRepository:
         """Stage files for commit."""
         try:
             if file_paths:
-                self.repo.index.add(file_paths)
+                # Handle deleted and modified files separately
+                existing_files = []
+                deleted_files = []
+                
+                for file_path in file_paths:
+                    if os.path.exists(file_path):
+                        existing_files.append(file_path)
+                    else:
+                        # Check if it's a deleted file
+                        try:
+                            # Use git status to check if file is deleted
+                            status = self.repo.git.status('--porcelain', file_path)
+                            if status.strip().startswith('D '):
+                                deleted_files.append(file_path)
+                            else:
+                                existing_files.append(file_path)
+                        except GitCommandError:
+                            existing_files.append(file_path)
+                
+                # Stage existing files
+                if existing_files:
+                    self.repo.index.add(existing_files)
+                
+                # Stage deleted files
+                if deleted_files:
+                    self.repo.git.add(deleted_files)
+                
                 logger.info(f"Staged {len(file_paths)} files")
             else:
                 self.repo.git.add('--all')
