@@ -4,13 +4,31 @@
 # Analyzes git changes and generates intelligent commit messages using Ollama
 
 # Configuration - can be overridden by environment variables
-OLLAMA_API_URL="${OLLAMA_API_URL:-http://localhost:11434}"
-OLLAMA_MODEL="${OLLAMA_MODEL:-qwen3:8b}"
+# Support both new and legacy variable names for backward compatibility
+AI_API_URL="${AI_API_URL:-${OLLAMA_API_URL:-http://localhost:11434}}"
+AI_MODEL="${AI_MODEL:-${OLLAMA_MODEL:-qwen3:8b}}"
+AI_BACKEND_TYPE="${AI_BACKEND_TYPE:-ollama}"
 SMART_COMMIT_MACOS_LOCAL="${SMART_COMMIT_MACOS_LOCAL:-false}"
+
+# Auto-detect backend type if not explicitly set and using legacy variables
+detect_backend_type() {
+    if [ -n "$OLLAMA_API_URL" ] && [ -z "$AI_BACKEND_TYPE" ] || [ "$AI_BACKEND_TYPE" = "ollama" ]; then
+        # Check if the server responds to llama.cpp health endpoint
+        if curl -s --max-time 3 "$AI_API_URL/health" >/dev/null 2>&1; then
+            log "Auto-detected llama.cpp backend from health endpoint"
+            AI_BACKEND_TYPE="llamacpp"
+        elif curl -s --max-time 3 "$AI_API_URL/api/tags" >/dev/null 2>&1; then
+            log "Confirmed Ollama backend from tags endpoint"
+            AI_BACKEND_TYPE="ollama"
+        else
+            log "Cannot reach server, keeping default backend type: $AI_BACKEND_TYPE"
+        fi
+    fi
+    log "Final backend type: $AI_BACKEND_TYPE"
+}
 
 # Command line options
 DRY_RUN=false
-FULL_MESSAGE=false
 ATOMIC_COMMITS=false
 
 # Portable log file location - use temp directory or user's home
@@ -30,18 +48,13 @@ while [[ $# -gt 0 ]]; do
             DRY_RUN=true
             shift
             ;;
-        --full)
-            FULL_MESSAGE=true
-            shift
-            ;;
         --atomic)
             ATOMIC_COMMITS=true
             shift
             ;;
         -h|--help)
-            echo "Usage: $0 [--dry-run] [--full] [--atomic] [--help]"
+            echo "Usage: $0 [--dry-run] [--atomic] [--help]"
             echo "  --dry-run    Show the generated commit message without committing"
-            echo "  --full       Generate full commit message without character limit truncation"
             echo "  --atomic     Create one commit per modified file (professional workflow)"
             echo "  --help       Show this help message"
             exit 0
@@ -72,7 +85,7 @@ init_log() {
     mkdir -p "$LOG_DIR" 2>/dev/null
     # Overwrite log file each run (no history kept)
     echo "=== Smart Git Commit Tool Log - $(date) ===" > "$LOG_FILE"
-    log "Starting smart-commit.sh with DRY_RUN=$DRY_RUN, FULL_MESSAGE=$FULL_MESSAGE"
+    log "Starting smart-commit.sh with DRY_RUN=$DRY_RUN"
     log "Log file: $LOG_FILE"
     log "Working directory: $(pwd)"
 }
@@ -228,7 +241,7 @@ $truncated_diff
 ## Instructions:
 1. Analyze the code changes above
 2. Write ONE commit message: type(scope): description  
-3. Keep under 72 characters
+3. Keep under 90 characters
 4. Use present tense verbs
 5. Be specific about what changed
 
@@ -246,24 +259,8 @@ Write ONLY the commit message, nothing else:"
     log "Truncated diff length: ${#truncated_diff} characters"
     log "Prompt length: ${#prompt} characters"
     
-    # Call Ollama API with truncated content
-    local temp_json=$(mktemp)
-    cat > "$temp_json" << EOF
-{
-    "model": "$OLLAMA_MODEL",
-    "prompt": $(echo "$prompt" | jq -R -s .),
-    "stream": false
-}
-EOF
-    
-    local response=$(curl -s --max-time 60 -X POST "$OLLAMA_API_URL/api/generate" \
-        -H "Content-Type: application/json" \
-        -d "@$temp_json")
-    
-    rm -f "$temp_json"
-    
-    # Extract commit message (simplified extraction)
-    local raw_response=$(echo "$response" | jq -r '.response' 2>/dev/null)
+    # Call AI API with truncated content
+    local raw_response=$(call_ai_api "$prompt" 60)
     
     if [ -z "$raw_response" ] || [ "$raw_response" = "null" ]; then
         log "ERROR: Failed to get response from Ollama"
@@ -320,10 +317,9 @@ calculate_adaptive_timeout() {
 generate_commit_message() {
     local diff_content="$1"
     local files_status="$2"
-    local use_full_message="$3"
     
-    # Use truncated version for macOS local optimization (but not when --full flag is used)
-    if [ "$SMART_COMMIT_MACOS_LOCAL" = "true" ] && [ "$use_full_message" != "true" ]; then
+    # Use truncated version for macOS local optimization
+    if [ "$SMART_COMMIT_MACOS_LOCAL" = "true" ]; then
         log "Using macOS local optimization (truncated mode)"
         generate_truncated_commit_message "$diff_content" "$files_status"
         return
@@ -342,11 +338,22 @@ $diff_content
 ## Instructions:
 1. Carefully analyze the actual code changes above
 2. Write ONE commit message in this exact format: type(scope): description
-3. Keep it under 72 characters
+3. Keep it under 90 characters
 4. Use present tense verbs
 5. Make the description SPECIFIC about what actually changed in the code
-6. CRITICAL: For scope, you MUST use the top-level directory name from file paths
-7. Look at file paths like 'gam/delegate-config/file.py' → scope MUST be 'gam'
+6. CRITICAL: Use this EXACT step-by-step process to determine scope:
+
+--- SCOPE ANALYSIS STEPS ---
+STEP 1: Look at the file path being analyzed
+STEP 2: Check: Does the file path contain a slash (/) ?
+STEP 3: IF no slash found → file is at root level → use NO scope (format: type: description)
+STEP 4: IF slash found → extract the FIRST directory name before the slash → use as scope (format: type(directory): description)
+STEP 5: Verify your choice matches the actual file path structure
+
+--- VALIDATION ---
+- Root level files (script.sh, README.md) → NO scope
+- Directory files (src/file.js, docs/guide.md) → USE directory as scope
+- DO NOT use scopes that don't exist in the actual file paths
 
 ## Types:
 - feat: new features
@@ -367,22 +374,24 @@ $diff_content
 - When you see new options, commands, or features, mention them specifically
 
 ## SCOPE RULES (MANDATORY):
-- Extract ONLY the first directory from file paths
-- Examples: 'gam/delegate-config/file.py' → scope = 'gam'
+- Analyze the file paths in the current diff to determine scope
+- Extract ONLY the first directory name that actually exists in the file paths
 - Examples: 'src/auth/login.js' → scope = 'src'
 - Examples: 'docs/api/readme.md' → scope = 'docs'
+- Examples: 'tests/unit/helper.py' → scope = 'tests'
 - Examples: 'script.sh' (root level) → NO scope, format: 'type: description'
+- IMPORTANT: Only use directory names that are ACTUALLY in the file paths being committed
 - NEVER use subdirectory names like 'delegate-config' or 'auth'
 - ALWAYS use the top-level directory name, OR no scope if file is in root
 
-## Examples:
+## Examples (based on actual file paths):
 feat(auth): add JWT token validation
-fix(parser): handle null values in CSV reader
+fix(parser): handle null values in CSV reader  
 perf(api): optimize database query caching
-refactor(gam): improve path detection algorithm
-docs(gam): add CLAUDE.md and improve path detection
+refactor(src): improve path detection algorithm
+docs(docs): add CLAUDE.md and improve documentation
 docs: add new CLI option documentation
-docs(readme): add installation requirements
+feat(tests): add installation requirements validation
 chore(deps): update eslint to v8.0
 perf: add adaptive timeout handling for complex files
 
@@ -397,63 +406,51 @@ Write ONLY the commit message, nothing else:"
     # Call Ollama API
     # Note: Status message moved outside of function to avoid output capture
     
-    log "Making curl request to Ollama with ${adaptive_timeout}s timeout..."
-    # Create a temporary file with the JSON payload to avoid escaping issues
-    local temp_json=$(mktemp)
-    cat > "$temp_json" << EOF
-{
-    "model": "$OLLAMA_MODEL",
-    "prompt": $(echo "$prompt" | jq -R -s .),
-    "stream": false
-}
-EOF
+    log "Making AI API request with ${adaptive_timeout}s timeout..."
     
-    local response=$(curl -s --max-time "$adaptive_timeout" -X POST "$OLLAMA_API_URL/api/generate" \
-        -H "Content-Type: application/json" \
-        -d "@$temp_json")
-    
-    rm -f "$temp_json"
+    # Call AI API with adaptive timeout
+    local raw_response=$(call_ai_api "$prompt" "$adaptive_timeout")
+    local api_exit_code=$?
     
     # Check if request timed out or failed
-    local curl_exit_code=$?
-    if [ $curl_exit_code -eq 28 ] || [ -z "$response" ]; then
-        log "TIMEOUT: Full analysis timed out after ${adaptive_timeout}s, falling back to truncated mode"
-        log "Curl exit code: $curl_exit_code"
+    if [ $api_exit_code -ne 0 ] || [ -z "$raw_response" ] || [ "$raw_response" = "null" ]; then
+        log "TIMEOUT/ERROR: Full analysis failed, falling back to truncated mode"
+        log "API exit code: $api_exit_code"
         echo -e "${YELLOW}⚠ Complex file detected - using optimized analysis mode${NC}" >&2
         generate_truncated_commit_message "$diff_content" "$files_status"
         return
     fi
     
-    log "Curl request completed. Response length: ${#response} characters"
-    log "Raw response: $response"
-    
-    # Extract the commit message from response
-    local raw_response=$(echo "$response" | jq -r '.response' 2>/dev/null)
+    log "AI API request completed. Response length: ${#raw_response} characters"
     log "Raw response: '$raw_response'"
     
     if [ -z "$raw_response" ] || [ "$raw_response" = "null" ]; then
-        log "ERROR: Failed to get response from Ollama"
+        log "ERROR: Failed to get response from AI API"
         echo -e "${RED}Error: Failed to generate commit message${NC}" >&2
-        echo "Ollama response: $response" >&2
+        echo "AI API response was empty or null" >&2
         exit 1
     fi
     
     # Extract commit message with multiple strategies
     local commit_message=""
     
-    # Strategy 1: Look for conventional commit pattern first
-    commit_message=$(echo "$raw_response" | grep -E '^(feat|fix|docs|style|refactor|test|chore|build|ci|perf|revert)\(' | head -1)
+    # First, clean the response by removing markdown code blocks and extra whitespace
+    local cleaned_response=$(echo "$raw_response" | sed 's/```[a-z]*//g' | sed 's/```//g' | sed '/^[[:space:]]*$/d' | tr -d '\r')
+    log "Cleaned response: '$cleaned_response'"
+    
+    # Strategy 1: Look for conventional commit pattern with scope
+    commit_message=$(echo "$cleaned_response" | grep -E '^[[:space:]]*(feat|fix|docs|style|refactor|test|chore|build|ci|perf|revert)\(' | head -1 | sed 's/^[[:space:]]*//')
     log "Strategy 1 (with scope): '$commit_message'"
     
     # Strategy 2: Look for conventional commit without scope
     if [ -z "$commit_message" ]; then
-        commit_message=$(echo "$raw_response" | grep -E '^(feat|fix|docs|style|refactor|test|chore|build|ci|perf|revert):' | head -1)
+        commit_message=$(echo "$cleaned_response" | grep -E '^[[:space:]]*(feat|fix|docs|style|refactor|test|chore|build|ci|perf|revert):' | head -1 | sed 's/^[[:space:]]*//')
         log "Strategy 2 (no scope): '$commit_message'"
     fi
     
-    # Strategy 3: Get the last line that looks like a commit
+    # Strategy 3: Get any line that looks like a commit
     if [ -z "$commit_message" ]; then
-        commit_message=$(echo "$raw_response" | grep -E '(feat|fix|docs|style|refactor|test|chore|build|ci|perf|revert)' | tail -1)
+        commit_message=$(echo "$cleaned_response" | grep -E '(feat|fix|docs|style|refactor|test|chore|build|ci|perf|revert)' | tail -1 | sed 's/^[[:space:]]*//')
         log "Strategy 3 (any line): '$commit_message'"
     fi
     
@@ -464,9 +461,9 @@ EOF
         log "Cleaned commit message: '$commit_message'"
     fi
     
-    # Smart length management (skip if using full message mode)
-    if [ "$use_full_message" != "true" ] && [ ${#commit_message} -gt 72 ]; then
-        log "Warning: Generated message is ${#commit_message} characters (over 72 char limit)"
+    # Smart length management
+    if [ ${#commit_message} -gt 90 ]; then
+        log "Warning: Generated message is ${#commit_message} characters (over 90 char limit)"
         
         # Try intelligent shortening first
         original_message="$commit_message"
@@ -522,6 +519,130 @@ EOF
     log "SUCCESS: Full analysis completed with adaptive timeout (${adaptive_timeout}s)"
     log "Final commit message: '$commit_message'"
     echo "$commit_message"
+}
+
+# API abstraction functions for different backends
+call_ai_api() {
+    local prompt="$1"
+    local timeout="$2"
+    
+    log "Calling AI API with backend type: $AI_BACKEND_TYPE"
+    log "API URL: $AI_API_URL"
+    log "Model: $AI_MODEL"
+    
+    case "$AI_BACKEND_TYPE" in
+        "ollama")
+            call_ollama_api "$prompt" "$timeout"
+            ;;
+        "llamacpp")
+            call_llamacpp_api "$prompt" "$timeout"
+            ;;
+        *)
+            log "ERROR: Unknown backend type: $AI_BACKEND_TYPE"
+            echo "chore: update files"
+            ;;
+    esac
+}
+
+# Ollama API call
+call_ollama_api() {
+    local prompt="$1"
+    local timeout="$2"
+    
+    log "Making Ollama API call..."
+    local temp_json=$(mktemp)
+    cat > "$temp_json" << EOF
+{
+    "model": "$AI_MODEL",
+    "prompt": $(echo "$prompt" | jq -R -s .),
+    "stream": false
+}
+EOF
+    
+    local response=$(curl -s --max-time "$timeout" -X POST "$AI_API_URL/api/generate" \
+        -H "Content-Type: application/json" \
+        -d "@$temp_json" 2>/dev/null)
+    
+    local curl_exit_code=$?
+    rm -f "$temp_json"
+    
+    # Check for timeout or connection errors
+    if [ $curl_exit_code -eq 28 ]; then
+        log "Ollama API call timed out after ${timeout}s"
+        return 1
+    elif [ $curl_exit_code -ne 0 ]; then
+        log "Ollama API call failed with exit code: $curl_exit_code"
+        return 1
+    fi
+    
+    # Extract response from Ollama format
+    local extracted_response=$(echo "$response" | jq -r '.response' 2>/dev/null)
+    if [ -z "$extracted_response" ] || [ "$extracted_response" = "null" ]; then
+        log "Failed to extract response from Ollama JSON: $response"
+        return 1
+    fi
+    
+    echo "$extracted_response"
+    return 0
+}
+
+# llama.cpp API call (OpenAI-compatible format)
+call_llamacpp_api() {
+    local prompt="$1"
+    local timeout="$2"
+    
+    log "Making llama.cpp API call..."
+    
+    # Auto-detect model if needed
+    local model_name="$AI_MODEL"
+    if [ "$model_name" = "auto-detected" ]; then
+        log "Auto-detecting model from llama.cpp server..."
+        local model_info=$(curl -s --max-time 5 "$AI_API_URL/v1/models" 2>/dev/null)
+        if [ -n "$model_info" ]; then
+            model_name=$(echo "$model_info" | jq -r '.data[0].id' 2>/dev/null)
+            log "Auto-detected model: $model_name"
+        else
+            log "Failed to auto-detect model, using fallback"
+            model_name="model"
+        fi
+    fi
+    
+    local temp_json=$(mktemp)
+    cat > "$temp_json" << EOF
+{
+    "model": "$model_name",
+    "prompt": $(echo "$prompt" | jq -R -s .),
+    "max_tokens": 100,
+    "temperature": 0.7,
+    "stop": ["\n\n"]
+}
+EOF
+    
+    local response=$(curl -s --max-time "$timeout" -X POST "$AI_API_URL/v1/completions" \
+        -H "Content-Type: application/json" \
+        -d "@$temp_json" 2>/dev/null)
+    
+    local curl_exit_code=$?
+    rm -f "$temp_json"
+    
+    # Check for timeout or connection errors
+    if [ $curl_exit_code -eq 28 ]; then
+        log "llama.cpp API call timed out after ${timeout}s"
+        return 1
+    elif [ $curl_exit_code -ne 0 ]; then
+        log "llama.cpp API call failed with exit code: $curl_exit_code"
+        return 1
+    fi
+    
+    # Extract response from OpenAI format
+    local extracted_response=$(echo "$response" | jq -r '.choices[0].text' 2>/dev/null)
+    if [ -z "$extracted_response" ] || [ "$extracted_response" = "null" ]; then
+        log "Failed to extract response from llama.cpp JSON: $response"
+        return 1
+    fi
+    
+    echo "$extracted_response"
+    return 0
 }
 
 
@@ -698,13 +819,17 @@ handle_atomic_commits() {
         exit 0
     fi
     
-    # Array to store commit info for validation
-    local commit_info_list=()
+    # Arrays to store file info and commit messages
+    local file_list=()
+    local message_list=()
+    local diff_list=()
     
     # Reset staging area to ensure clean start
     git reset --quiet
     
-    # Process each file individually
+    # Phase 1: Generate all commit messages first (no commits yet)
+    echo -e "${BLUE}Generating commit messages for all files...${NC}"
+    
     while IFS= read -r file; do
         [ -z "$file" ] && continue
         
@@ -714,7 +839,7 @@ handle_atomic_commits() {
         # Reset staging area before processing each file
         git reset --quiet
         
-        # Stage only this file
+        # Stage only this file to get diff
         git add "$file"
         
         # Get diff analysis for this file only
@@ -728,37 +853,121 @@ handle_atomic_commits() {
             echo -e "${BLUE}Generating commit message for $file...${NC}"
         fi
         
-        commit_message=$(generate_commit_message "$file_diff" "" "$FULL_MESSAGE")
+        commit_message=$(generate_commit_message "$file_diff" "")
+        
+        # Store for later processing
+        file_list+=("$file")
+        message_list+=("$commit_message")
+        diff_list+=("$file_diff")
         
         if [ "$DRY_RUN" = "true" ]; then
             echo -e "${GREEN}File: ${YELLOW}$file${NC}"
             echo -e "${GREEN}Generated commit message:${NC} \"$commit_message\""
         else
-            # Commit this file
-            if git commit -m "$commit_message"; then
-                local commit_hash=$(git rev-parse HEAD)
-                echo -e "${GREEN}✓ Committed: $file${NC}"
-                echo -e "  Message: \"$commit_message\""
-                
-                # Store commit info for validation
-                commit_info_list+=("$file|$commit_message|$commit_hash")
-            else
-                echo -e "${RED}✗ Failed to commit: $file${NC}"
-            fi
+            echo -e "${GREEN}Generated message:${NC} \"$commit_message\""
         fi
         
     done <<< "$changed_files"
     
-    if [ "$DRY_RUN" = "false" ]; then
-        echo
-        echo -e "${GREEN}All files committed individually!${NC}"
-        
-        # Validate commits before pushing
-        validate_commits "${commit_info_list[@]}"
-    else
+    # Reset staging area after message generation
+    git reset --quiet
+    
+    if [ "$DRY_RUN" = "true" ]; then
         echo
         echo -e "${YELLOW}Dry run complete - no commits made${NC}"
+        return
     fi
+    
+    # Phase 2: Show all messages and get user approval
+    echo
+    echo -e "${BLUE}=== Proposed Atomic Commits ===${NC}"
+    echo "The following commits will be created:"
+    echo
+    
+    for i in $(seq 0 $((${#file_list[@]} - 1))); do
+        printf "%d) %s\n   %s\n\n" $((i + 1)) "${file_list[$i]}" "${message_list[$i]}"
+    done
+    
+    echo -e "${YELLOW}Options:${NC}"
+    echo "  ENTER - Accept all messages and create commits"
+    echo "  1-${#file_list[@]} - Edit specific commit message"  
+    echo "  c - Cancel (no commits will be made)"
+    echo
+    
+    # Get user approval before any commits
+    while true; do
+        read -p "Your choice [ENTER/1-${#file_list[@]}/c]: " choice
+        
+        case "$choice" in
+            "")
+                # Accept all and create commits
+                break
+                ;;
+            [1-9]|[1-9][0-9])
+                if [ "$choice" -ge 1 ] && [ "$choice" -le ${#file_list[@]} ]; then
+                    local index=$((choice - 1))
+                    echo
+                    echo -e "${BLUE}Editing message for: ${YELLOW}${file_list[$index]}${NC}"
+                    echo -e "Current message: ${YELLOW}\"${message_list[$index]}\"${NC}"
+                    echo
+                    read -p "Enter new commit message: " new_message
+                    if [ -n "$new_message" ]; then
+                        message_list[$index]="$new_message"
+                        echo -e "${GREEN}Message updated${NC}"
+                    fi
+                    echo
+                    # Show updated list
+                    echo -e "${BLUE}=== Updated Proposed Commits ===${NC}"
+                    for i in $(seq 0 $((${#file_list[@]} - 1))); do
+                        printf "%d) %s\n   %s\n\n" $((i + 1)) "${file_list[$i]}" "${message_list[$i]}"
+                    done
+                else
+                    echo -e "${RED}Invalid selection. Please choose 1-${#file_list[@]}${NC}"
+                fi
+                ;;
+            [Cc])
+                echo -e "${YELLOW}Cancelled. No commits were made.${NC}"
+                return
+                ;;
+            *)
+                echo -e "${RED}Invalid option. Please choose ENTER, 1-${#file_list[@]}, or 'c'${NC}"
+                ;;
+        esac
+    done
+    
+    # Phase 3: Create the approved commits
+    echo -e "${BLUE}Creating commits...${NC}"
+    local commit_info_list=()
+    
+    for i in $(seq 0 $((${#file_list[@]} - 1))); do
+        local file="${file_list[$i]}"
+        local commit_message="${message_list[$i]}"
+        
+        echo
+        echo -e "${BLUE}Committing: ${YELLOW}$file${NC}"
+        
+        # Reset and stage only this file
+        git reset --quiet
+        git add "$file"
+        
+        # Create the commit
+        if git commit -m "$commit_message"; then
+            local commit_hash=$(git rev-parse HEAD)
+            echo -e "${GREEN}✓ Committed: $file${NC}"
+            echo -e "  Message: \"$commit_message\""
+            
+            # Store commit info for final validation
+            commit_info_list+=("$file|$commit_message|$commit_hash")
+        else
+            echo -e "${RED}✗ Failed to commit: $file${NC}"
+        fi
+    done
+    
+    echo
+    echo -e "${GREEN}All files committed individually!${NC}"
+    
+    # Final validation for pushing
+    validate_commits "${commit_info_list[@]}"
 }
 
 # Function to stage all changes
@@ -776,7 +985,7 @@ commit_changes() {
     echo
     
     # Ask for confirmation with ENTER as default accept
-    read -p "Press ENTER to commit, or 'n' to edit message: " confirmation
+    read -p "Press ENTER to commit, 'e' to edit message, or 'c' to cancel: " confirmation
     
     if [[ -z "$confirmation" ]]; then
         # Empty input (just ENTER pressed) - accept the message
@@ -788,7 +997,7 @@ commit_changes() {
             echo -e "${RED}Failed to commit changes${NC}"
             return 1
         fi
-    elif [[ $confirmation =~ ^[Nn]$ ]]; then
+    elif [[ $confirmation =~ ^[Ee]$ ]]; then
         # User wants to edit the message
         echo -e "${YELLOW}Enter your custom commit message:${NC}"
         read -p "> " custom_message
@@ -806,6 +1015,11 @@ commit_changes() {
             echo -e "${RED}Empty commit message. Commit cancelled.${NC}"
             return 1
         fi
+    elif [[ $confirmation =~ ^[Cc]$ ]]; then
+        # User wants to cancel
+        echo -e "${YELLOW}Commit cancelled. No changes were committed.${NC}"
+        git reset --quiet  # Unstage the changes
+        return 1
     else
         echo -e "${YELLOW}Commit cancelled${NC}"
         return 1
@@ -839,6 +1053,9 @@ push_changes() {
 main() {
     # Initialize logging
     init_log
+    
+    # Auto-detect backend type
+    detect_backend_type
     
     if [ "$DRY_RUN" = false ]; then
         echo -e "${BLUE}Smart Git Commit Tool${NC}"
@@ -878,7 +1095,7 @@ main() {
     if [ "$DRY_RUN" = false ]; then
         echo -e "${BLUE}Analyzing changes and generating commit message...${NC}"
     fi
-    local commit_message=$(generate_commit_message "$diff_content" "$files_status" "$FULL_MESSAGE")
+    local commit_message=$(generate_commit_message "$diff_content" "$files_status")
     log "Generated commit message: '$commit_message'"
     
     # Handle dry run mode
