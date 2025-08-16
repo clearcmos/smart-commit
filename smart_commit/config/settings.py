@@ -128,6 +128,18 @@ class Settings(BaseSettings):
     }
     
     def __init__(self, **kwargs):
+        # First, try to load from default config file if no explicit config provided
+        if not kwargs and not any(os.getenv(var) for var in ["AI_API_URL", "OLLAMA_API_URL", "AI_MODEL", "OLLAMA_MODEL"]):
+            config_path = self._get_default_config_path()
+            if config_path.exists():
+                import json
+                try:
+                    with open(config_path) as f:
+                        config_data = json.load(f)
+                    kwargs = config_data
+                except (json.JSONDecodeError, OSError):
+                    pass  # Fall back to defaults
+        
         # Handle environment variables manually for nested fields
         env_overrides = {}
         
@@ -157,6 +169,15 @@ class Settings(BaseSettings):
                 
         super().__init__(**kwargs)
     
+    def _get_default_config_path(self) -> Path:
+        """Get the default config file path."""
+        if platform.system() == "Windows":
+            base = Path(os.environ.get("APPDATA", "~"))
+        else:
+            base = Path(os.environ.get("XDG_CONFIG_HOME", "~/.config"))
+        
+        return (base / "smart-commit" / "config.json").expanduser()
+    
     
     @classmethod
     def from_file(cls, config_path: Path) -> "Settings":
@@ -173,7 +194,7 @@ class Settings(BaseSettings):
         config_path.parent.mkdir(parents=True, exist_ok=True)
         with open(config_path, 'w') as f:
             import json
-            json.dump(self.dict(), f, indent=2)
+            json.dump(self.model_dump(), f, indent=2)
     
     @property
     def config_dir(self) -> Path:
