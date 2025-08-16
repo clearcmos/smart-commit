@@ -137,9 +137,6 @@ smart-commit
 # Preview commit message without committing
 smart-commit --dry-run
 
-# Generate full commit message without character limit
-smart-commit --full
-
 # Create one commit per modified file (professional workflow)
 smart-commit --atomic
 
@@ -183,12 +180,8 @@ smart-commit --atomic
 # ✓ Committed: README.md  
 #   Message: "docs: update authentication setup instructions"
 #
-# === Commit Summary ===
-# 1) auth.js - feat(auth): add JWT token validation with expiry handling
-# 2) login.html - feat(ui): add login form validation feedback  
-# 3) README.md - docs: update authentication setup instructions
-#
-# [ENTER to push, 1-3 to edit, c to cancel]: 
+# All files committed individually!
+# Pushing all commits to remote... 
 ```
 
 ## How It Works
@@ -347,19 +340,17 @@ Logs are stored at `~/.cache/smart-commit.log` and overwritten on each run. The 
 ## Command Line Options
 
 ```
-Usage: smart-commit [--dry-run] [--full] [--atomic] [--help]
+Usage: smart-commit [--dry-run] [--atomic] [--help]
 
 Options:
   --dry-run    Show the generated commit message without committing
-  --full       Generate full commit message without character limit truncation
   --atomic     Create one commit per modified file (professional workflow)
   --help       Show help message and exit
 
 Examples:
   smart-commit              # Analyze, commit, and push changes
   smart-commit --dry-run    # Preview commit message only
-  smart-commit --full       # Generate detailed commit message without length limits
-  smart-commit --atomic     # Create atomic commits with validation workflow
+  smart-commit --atomic     # Create atomic commits with streamlined workflow
   smart-commit --atomic --dry-run  # Preview atomic commit messages
 ```
 
@@ -373,19 +364,16 @@ The `--atomic` flag creates professional, focused commits:
 - **Selective rollbacks** - Revert specific features without affecting others
 - **Improved accuracy** - Single-file context generates better commit messages
 
-### Validation Process
-After generating all commits, you can:
-- **ENTER** - Accept all commits and push to remote
-- **1-N** - Edit specific commit messages before pushing
-- **c** - Cancel push (keeps commits local)
+### Streamlined Process
+After generating all proposed commits, you can:
+- **ENTER** - Accept all messages, create commits, and push to remote
+- **1-N** - Edit specific commit messages before committing
+- **c** - Cancel (no commits will be made)
 
 ### Flag Combinations
 ```bash
-# Atomic commits with macOS optimization
+# Atomic commits with platform optimization
 smart-commit --atomic
-
-# Atomic commits with full analysis (all platforms)  
-smart-commit --atomic --full
 
 # Preview atomic commits without committing
 smart-commit --atomic --dry-run
@@ -407,14 +395,12 @@ When using local Ollama on macOS (M1/M2/M3 chips), smart-commit automatically us
 **When optimization is used:**
 - ✅ Local Ollama on macOS (set by setup script)
 - ✅ Regular `smart-commit` command
-- ❌ When using `--full` flag (uses detailed analysis)
 - ❌ Linux local or remote setups (use full power)
 
 ### Platform-Specific Behavior
 - **macOS local**: Fast, optimized prompts (~15-25 seconds) with progressive truncation
 - **Linux local**: Full detailed analysis (more powerful hardware assumed)
 - **Remote servers**: Full detailed analysis (desktop-class performance)
-- **All platforms with `--full`**: Maximum detail and accuracy
 
 ### Progressive Optimization (macOS Local)
 Smart-commit automatically adjusts analysis depth based on change complexity:
@@ -431,7 +417,7 @@ Smart-commit automatically adjusts analysis depth based on change complexity:
 ### Smart Message Improvement
 The script automatically:
 - Validates conventional commit format
-- Shortens messages that exceed 72 characters
+- Shortens messages that exceed 90 characters
 - Auto-corrects commit types based on code content (feat→perf for performance improvements)
 - Detects performance patterns: ThreadPoolExecutor, batch processing, concurrency
 - Uses context from recent commits for consistency
