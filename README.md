@@ -1,10 +1,10 @@
 # Smart Git Commit Tool
 
-An intelligent bash script that analyzes your git changes and generates meaningful commit messages using AI via Ollama.
+An intelligent bash script that analyzes your git changes and generates meaningful commit messages using AI. Supports both Ollama and llama.cpp backends with automatic detection and platform-specific optimizations.
 
 ## Features
 
-- 🤖 **AI-Powered Analysis** - Uses Ollama models to understand your code changes with intelligent analysis
+- 🤖 **Dual AI Backend Support** - Works with both Ollama and llama.cpp servers with automatic detection
 - 📝 **Conventional Commits** - Generates properly formatted commit messages (feat:, fix:, perf:, etc.)
 - 🎯 **Context-Aware** - Considers recent commit history for consistent messaging style
 - ⚡ **Smart Validation** - Automatically improves and shortens messages when needed
@@ -12,7 +12,8 @@ An intelligent bash script that analyzes your git changes and generates meaningf
 - 🎯 **Auto-Correction** - Intelligently corrects commit types (e.g., feat→perf for performance changes)
 - 🔍 **Dry Run Mode** - Preview commit messages without making changes
 - 📊 **Comprehensive Logging** - Detailed logs for debugging and transparency
-- 🌐 **Fully Portable** - Works from any git repository
+- 🌐 **Cross-Platform** - Native support for macOS and Linux with platform-specific optimizations
+- 🔌 **Flexible Deployment** - Local, remote, or hybrid AI server configurations
 
 ## Installation
 
@@ -26,13 +27,19 @@ Run the setup script for easy installation:
 
 The setup script will:
 - Detect your OS (Linux/macOS) and configure the appropriate shell profile
+- **Check current status**: Display smart-commit command availability and AI configuration validation
 - Give you three options:
-  1. **Local Ollama** - Install and run Ollama locally (with macOS performance optimization)
-  2. **Remote Ollama** - Connect to an existing Ollama server
-  3. **Keep current configuration** - Maintain existing setup
-- Handle Ollama installation, model download, and service management automatically
+  1. **Local AI** - Platform-specific local setup:
+     - **macOS**: Install and run Ollama locally (with performance optimization)
+     - **Linux**: Probe and use existing llama.cpp installation (partial implementation)
+  2. **Remote AI server** - Connect to existing servers:
+     - **Windows Ollama server** (port 11434)
+     - **Linux llama.cpp server** (port 8080, auto-detects model)
+  3. **Keep current configuration** - Maintain existing setup with validation
+- Handle installation, model detection, and service management automatically
+- **Validate configuration**: Check environment variables are properly set and non-empty
 - Set up environment variables in `.bashrc` (Linux) or `.zshrc` (macOS)
-- Install `smart-commit` to `/usr/local/bin/` system-wide
+- **Always install command**: Ensure `smart-commit` is available system-wide in `/usr/local/bin/`
 
 After setup, reload your shell:
 ```bash
@@ -57,13 +64,32 @@ chmod +x ~/bin/smart-commit
 
 #### 2. Configure environment variables
 Add to your `~/.bashrc` (Linux) or `~/.zshrc` (macOS):
+
+**For Ollama backend:**
 ```bash
-# Ollama configuration for smart-commit script
-export OLLAMA_API_URL="http://localhost:11434"  # or your remote server IP
-export OLLAMA_MODEL="qwen3:8b"
+# AI configuration for smart-commit script
+export AI_API_URL="http://localhost:11434"  # or your remote server IP
+export AI_MODEL="qwen3:8b"
+export AI_BACKEND_TYPE="ollama"
 
 # Optional: Enable macOS performance optimization (for local macOS setups)
 export SMART_COMMIT_MACOS_LOCAL="true"
+```
+
+**For llama.cpp backend:**
+```bash
+# AI configuration for smart-commit script
+export AI_API_URL="http://localhost:8080"  # or your remote server IP:port
+export AI_MODEL="auto-detected"  # or specific model path
+export AI_BACKEND_TYPE="llamacpp"
+```
+
+**Legacy configuration (still supported):**
+```bash
+# Legacy Ollama configuration (automatically converted)
+export OLLAMA_API_URL="http://localhost:11434"
+export OLLAMA_MODEL="qwen3:8b"
+# AI_BACKEND_TYPE will be auto-detected
 ```
 
 Then reload your shell:
@@ -75,21 +101,31 @@ source ~/.zshrc   # macOS
 ## Prerequisites
 
 - **Git repository** - Must be run from within a git repository
-- **Ollama** - Either local installation (handled by setup) or remote server access
+- **AI Backend** - Choose from:
+  - **Ollama** - Local installation (handled by setup) or remote server access
+  - **llama.cpp** - Local installation or remote server access
 - **jq** - For JSON parsing (`sudo apt install jq` on Ubuntu/Debian, `brew install jq` on macOS)
 - **curl** - For API requests (usually pre-installed)
 
-### Local Ollama (Recommended for new users)
+### Backend Options
+
+#### Local Ollama (macOS - Recommended for new users)
 The setup script can automatically:
 - Install Ollama via Homebrew (macOS) or curl script (Linux)
 - Download the qwen3:8b model (~5GB)
 - Start the Ollama service
 - Configure optimized settings for your platform
 
-### Remote Ollama (For existing setups)
-If you already have Ollama running elsewhere:
-- Ensure the server is accessible on port 11434
-- Verify the qwen3:8b model is available
+#### Local llama.cpp (Linux - Partial Implementation)
+For Linux users with existing llama.cpp installations:
+- **⚠️ Partially implemented** - Probes existing installations only
+- Detects running llama.cpp servers on ports 8080, 8000, 3000
+- Auto-detects model names and configurations
+- **No automatic installation** - Use remote options if no existing setup
+
+#### Remote Servers
+- **Windows Ollama server** - Accessible on port 11434 with qwen3:8b model
+- **Linux llama.cpp server** - Accessible on port 8080 (or custom) with compatible models
 
 ## Usage
 
@@ -167,17 +203,27 @@ smart-commit --atomic
 ## Configuration
 
 ### Environment Variables
-- `OLLAMA_API_URL` - Ollama server endpoint (default: http://localhost:11434)
-- `OLLAMA_MODEL` - Model to use (default: qwen3:8b)
+
+#### New Configuration (v2.0+)
+- `AI_API_URL` - AI server endpoint (default: http://localhost:11434)
+- `AI_MODEL` - Model to use (default: qwen3:8b, or auto-detected for llama.cpp)
+- `AI_BACKEND_TYPE` - Backend type: "ollama" or "llamacpp" (auto-detected if not set)
 - `SMART_COMMIT_MACOS_LOCAL` - Enable macOS performance optimization (set automatically by setup)
+
+#### Legacy Configuration (still supported)
+- `OLLAMA_API_URL` - Ollama server endpoint (automatically converted to AI_API_URL)
+- `OLLAMA_MODEL` - Ollama model (automatically converted to AI_MODEL)
 
 ### Temporary Override
 ```bash
 # Use different model for one run
-OLLAMA_MODEL="llama3.2:1b" smart-commit --dry-run
+AI_MODEL="llama3.2:1b" smart-commit --dry-run
 
-# Use different API endpoint
-OLLAMA_API_URL="http://localhost:11434" smart-commit
+# Use different backend temporarily
+AI_BACKEND_TYPE="llamacpp" AI_API_URL="http://localhost:8080" smart-commit
+
+# Legacy override (still works)
+OLLAMA_MODEL="llama3.2:1b" smart-commit --dry-run
 ```
 
 ## Multi-Account GitHub Setup
@@ -414,14 +460,16 @@ The script automatically:
 - Check `git status` to see current repository state
 
 **"Failed to generate commit message"**
-- Verify Ollama server is running and accessible
-- Check the model is available: `curl $OLLAMA_API_URL/api/tags`
+- Verify your AI server is running and accessible
+- **For Ollama**: Check the model is available: `curl $AI_API_URL/api/tags`
+- **For llama.cpp**: Check server health: `curl $AI_API_URL/health`
 - Review logs at `~/.cache/smart-commit.log`
 
 **AI response issues**
 - Try a different model (e.g., `llama3.2:1b` for faster responses)
-- Check Ollama server logs for errors
+- Check AI server logs for errors
 - Ensure sufficient system resources for the model
+- Verify backend type is correctly set (`AI_BACKEND_TYPE`)
 
 ### Debugging
 Check the detailed log file for troubleshooting:
@@ -429,11 +477,68 @@ Check the detailed log file for troubleshooting:
 cat ~/.cache/smart-commit.log
 ```
 
+## Dual Backend Support
+
+Smart-commit seamlessly supports both Ollama and llama.cpp backends with automatic detection and configuration.
+
+### Backend Detection
+The script automatically detects your backend type by:
+1. **Environment variables** - Respects explicit `AI_BACKEND_TYPE` setting
+2. **Legacy compatibility** - Auto-detects when using `OLLAMA_*` variables
+3. **Server probing** - Tests `/health` (llama.cpp) and `/api/tags` (Ollama) endpoints
+4. **Graceful fallback** - Uses specified backend if detection fails
+
+### API Compatibility
+- **Ollama**: Uses `/api/generate` endpoint with native JSON format
+- **llama.cpp**: Uses `/v1/completions` endpoint with OpenAI-compatible format
+- **Model handling**: 
+  - Ollama: Uses model name directly (e.g., "qwen3:8b")
+  - llama.cpp: Supports full model paths or auto-detection from server
+
+### Configuration Examples
+
+#### Setup Script Configurations
+```bash
+# Windows Ollama server
+AI_API_URL="http://192.168.1.100:11434"
+AI_MODEL="qwen3:8b"
+AI_BACKEND_TYPE="ollama"
+
+# Linux llama.cpp server  
+AI_API_URL="http://192.168.1.200:8080"
+AI_MODEL="/path/to/model.gguf"
+AI_BACKEND_TYPE="llamacpp"
+
+# Auto-detected local Linux llama.cpp
+AI_API_URL="http://localhost:8080"
+AI_MODEL="auto-detected"
+AI_BACKEND_TYPE="llamacpp"
+```
+
+#### Legacy Auto-Conversion
+```bash
+# This legacy configuration...
+export OLLAMA_API_URL="http://localhost:8080"
+export OLLAMA_MODEL="model.gguf"
+
+# ...automatically becomes:
+# AI_API_URL="http://localhost:8080"
+# AI_MODEL="model.gguf" 
+# AI_BACKEND_TYPE="llamacpp"  (auto-detected via /health endpoint)
+```
+
 ## Recommended Models
 
+### For Ollama
 - **qwen3:8b** (Recommended) - Best balance of quality and speed, excellent context understanding
 - **llama3.2:1b** - Faster responses, good for simple commits
 - **qwen3:4b** - Good middle ground if available
+
+### For llama.cpp
+- **Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf** (Recommended) - Excellent code understanding and commit generation
+- **CodeLlama-7B-Instruct-Q4_K_M.gguf** - Good code-specific performance
+- **Qwen2-7B-Instruct-Q4_K_M.gguf** - General purpose, good quality
+- **Llama-3.2-1B-Instruct-Q8_0.gguf** - Fast responses for simple commits
 
 ## License
 
