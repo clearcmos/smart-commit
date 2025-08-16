@@ -966,8 +966,9 @@ handle_atomic_commits() {
     echo
     echo -e "${GREEN}All files committed individually!${NC}"
     
-    # Final validation for pushing
-    validate_commits "${commit_info_list[@]}"
+    # Push all commits directly
+    echo -e "${BLUE}Pushing all commits to remote...${NC}"
+    push_changes
 }
 
 # Function to stage all changes
