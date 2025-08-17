@@ -192,18 +192,40 @@ class GitRepository:
         else:
             return 'M'  # Modified
     
-    def _get_diff_content(self, diff, max_lines: int) -> str:
-        """Extract and limit diff content."""
+    def _get_diff_content(self, diff, max_lines: int = 500) -> str:
+        """Get the diff content for a file change."""
         try:
             file_path = diff.a_path or diff.b_path
+            logger.info(f"🔍 GETTING DIFF FOR: {file_path}")
+            
             if not file_path:
+                logger.warning(f"❌ No file path in diff: {diff}")
                 return ""
             
             # Get the actual git diff output
-            if diff.change_type == "M":  # Modified
-                # For modified files, get the diff between working tree and index
-                diff_output = self.repo.git.diff("--no-index", "--no-ext-diff", "--unified=3", file_path)
-            elif diff.change_type == "A":  # Added
+            diff_output = ""  # Initialize diff_output for all cases
+            
+            # Determine change type from the GitPython diff object
+            if diff.new_file:
+                change_type = "A"  # Added
+            elif diff.deleted_file:
+                change_type = "D"  # Deleted
+            elif diff.renamed_file:
+                change_type = "R"  # Renamed
+            elif diff.copied_file:
+                change_type = "C"  # Copied
+            else:
+                change_type = "M"  # Modified
+                
+            logger.info(f"📊 Change type: {change_type}")
+            
+            if change_type == "M":  # Modified
+                # For modified files, get the diff between working tree and last commit
+                logger.info(f"🔍 Executing: git diff HEAD -- {file_path}")
+                diff_output = self.repo.git.diff("HEAD", "--", file_path)
+                logger.info(f"📊 Git diff output length: {len(diff_output)} characters")
+                logger.info(f"📈 Git diff first 100 chars: {diff_output[:100]}...")
+            elif change_type == "A":  # Added
                 # For added files, show the file content
                 try:
                     with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
@@ -214,21 +236,21 @@ class GitRepository:
                         return "\n".join(lines)
                 except Exception:
                     return f"Added file: {file_path}"
-            elif diff.change_type == "D":  # Deleted
+            elif change_type == "D":  # Deleted
                 return f"Deleted file: {file_path}"
             else:
                 return f"Changed file: {file_path}"
             
             # Process diff output
+            logger.info(f"🔍 Processing diff output: {len(diff_output)} characters")
             if diff_output:
-                lines = diff_output.split("\n")
-                if len(lines) > max_lines:
-                    lines = lines[:max_lines] + [f"... (truncated, {len(lines) - max_lines} more lines)"]
-                return "\n".join(lines)
+                # Return raw diff content - let the prompt builder handle truncation
+                return diff_output
             else:
+                logger.warning(f"❌ No diff output for {file_path}")
                 return f"No diff output for {file_path}"
         except Exception as e:
-            logger.debug(f"Failed to get diff content for {diff.a_path}: {e}")
+            logger.error(f"❌ Failed to get diff content for {diff.a_path if hasattr(diff, 'a_path') else 'unknown'}: {e}")
             return f"Error getting diff: {e}"    
     def stage_files(self, file_paths: Optional[List[str]] = None) -> None:
         """Stage files for commit."""
