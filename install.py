@@ -80,10 +80,29 @@ class SmartCommitInstaller:
             try:
                 with open(shell_rc, 'r') as f:
                     content = f.read()
+                    # Check if smart-commit PATH is already properly configured
                     if str(user_bin) in content and 'PATH' in content:
-                        already_configured = True
-                        print("✅ PATH already configured in shell profile")
-                        return
+                        # Verify it's not being overridden by checking line order
+                        lines = content.split('\n')
+                        smart_commit_line = -1
+                        path_override_line = -1
+                        
+                        for i, line in enumerate(lines):
+                            if str(user_bin) in line and 'PATH' in line:
+                                smart_commit_line = i
+                            # Check for common PATH overrides that might come after
+                            if ('export PATH=' in line and 'npm-global' in line) or \
+                               ('export PATH=' in line and 'nvm/versions' in line) or \
+                               (line.strip().startswith('export PATH=') and user_bin not in line and len(line.split(':')) > 3):
+                                path_override_line = max(path_override_line, i)
+                        
+                        # If smart-commit PATH comes after overrides, it's properly configured
+                        if smart_commit_line > path_override_line:
+                            already_configured = True
+                            print("✅ PATH already configured in shell profile")
+                            return
+                        elif smart_commit_line >= 0:
+                            print("🔄 Smart Commit PATH found but may be overridden, fixing...")
             except Exception:
                 pass
         
@@ -102,11 +121,13 @@ class SmartCommitInstaller:
                 if not rc_exists:
                     shell_rc.touch()
                     print(f"📝 Created {shell_rc}")
-                
-                # Add PATH export to shell RC
-                with open(shell_rc, 'a') as f:
-                    f.write(f"\n# Smart Commit PATH (added by installer)\n")
-                    f.write(f"{path_line}\n")
+                    # Simple append for new files
+                    with open(shell_rc, 'a') as f:
+                        f.write(f"\n# Smart Commit PATH (added by installer)\n")
+                        f.write(f"{path_line}\n")
+                else:
+                    # For existing files, intelligently place the PATH export
+                    self._smart_path_insertion(shell_rc, user_bin, path_line)
                 
                 print(f"✅ Added to {shell_rc}")
                 print()
@@ -126,6 +147,47 @@ class SmartCommitInstaller:
             print("⚠️  PATH not modified. Manual setup required:")
             print(f"   echo '{path_line}' >> {shell_rc}")
             print(f"   source {shell_rc}")
+
+    def _smart_path_insertion(self, shell_rc: Path, user_bin: Path, path_line: str) -> None:
+        """Intelligently insert PATH configuration after other PATH-modifying sections."""
+        with open(shell_rc, 'r') as f:
+            lines = f.readlines()
+        
+        # Remove any existing smart-commit PATH lines
+        filtered_lines = []
+        for line in lines:
+            if 'Smart Commit PATH' in line or (str(user_bin) in line and 'PATH' in line and 'export' in line):
+                continue
+            filtered_lines.append(line)
+        
+        # Find the best insertion point (after NVM, npm, or other PATH modifications)
+        insertion_point = len(filtered_lines)
+        
+        # Look for common PATH-modifying sections
+        for i, line in enumerate(filtered_lines):
+            # After NVM setup
+            if 'nvm/versions/node' in line or 'npm-global' in line:
+                insertion_point = max(insertion_point, i + 1)
+            # After large PATH exports
+            elif line.strip().startswith('export PATH=') and len(line.split(':')) > 5:
+                insertion_point = max(insertion_point, i + 1)
+            # After sourcing NVM
+            elif 'nvm.sh' in line or 'bash_completion' in line:
+                insertion_point = max(insertion_point, i + 1)
+            # After any PATH export (like cursor)
+            elif line.strip().startswith('export PATH=') and '$PATH' in line:
+                insertion_point = max(insertion_point, i + 1)
+        
+        # Insert the smart-commit PATH configuration
+        new_lines = (
+            filtered_lines[:insertion_point] +
+            ["\n", "# Smart Commit PATH (added by installer)\n", f"{path_line}\n"] +
+            filtered_lines[insertion_point:]
+        )
+        
+        # Write back to file
+        with open(shell_rc, 'w') as f:
+            f.writelines(new_lines)
     
     def print_banner(self) -> None:
         """Print installation banner."""
@@ -706,6 +768,7 @@ class SmartCommitInstaller:
                 "auto_stage": True,
                 "auto_push": True,
                 "max_diff_lines": 500,
+                "truncation_threshold": 1000,
                 "atomic_mode": False
             },
             "ui": {
