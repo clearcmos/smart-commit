@@ -137,6 +137,21 @@ class SmartCommitConsole:
         self.console.print(table)
         self.console.print()
     
+    def show_truncation_notice(self, file_path: str, original_lines: int, truncated_lines: int) -> None:
+        """Show notice when large files are truncated for AI analysis."""
+        
+        if original_lines > truncated_lines:
+            notice = Panel(
+                f"[bold yellow]Large file detected:[/bold yellow] {file_path}\n"
+                f"[dim]Showing {truncated_lines:,} of {original_lines:,} lines for AI analysis[/dim]\n"
+                f"[dim]Commit message will focus on the most significant changes[/dim]",
+                title="📝 Diff Truncation Notice",
+                border_style="yellow",
+                box=box.ROUNDED
+            )
+            self.console.print(notice)
+            self.console.print()
+    
     def show_ai_backend_info(self, backend_type: str, api_url: str, model: str) -> None:
         """Show AI backend information."""
         backend_panel = Panel(
