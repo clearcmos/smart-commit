@@ -56,6 +56,12 @@ class GitSettings(BaseModel):
         le=2000,
         description="Maximum lines of diff to analyze"
     )
+    truncation_threshold: int = Field(
+        default=1000,
+        ge=500,
+        le=5000,
+        description="File size threshold (lines) above which diffs are truncated"
+    )
     atomic_mode: bool = Field(
         default=False,
         description="Create one commit per modified file"
