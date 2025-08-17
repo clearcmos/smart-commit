@@ -49,7 +49,7 @@ class ScopeCache:
         """Actually compute the scope (expensive operation)."""
         try:
             from smart_commit.utils.prompts import PromptBuilder
-            pb = PromptBuilder()
+            pb = PromptBuilder()  # No settings needed for scope analysis
             return pb._analyze_scope(file_path)
         except Exception as e:
             logger.debug(f"Failed to compute scope for {file_path}: {e}")
@@ -167,7 +167,7 @@ class LazyScopeAnalyzer:
         """Lazy load PromptBuilder only when needed."""
         if self._prompt_builder is None:
             from smart_commit.utils.prompts import PromptBuilder
-            self._prompt_builder = PromptBuilder()
+            self._prompt_builder = PromptBuilder()  # No settings needed for scope analysis
         return self._prompt_builder
     
     def get_scope(self, file_path: str) -> Optional[str]:
