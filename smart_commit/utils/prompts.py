@@ -1,6 +1,6 @@
 """
-AI prompt templates with optimization strategies.
-Based on 2025 best practices for AI commit message generation.
+Optimized AI prompt templates for Qwen2.5-Coder-7B-Instruct.
+Based on 2025 best practices for code analysis and commit message generation.
 """
 
 from typing import List, Dict, Optional
@@ -8,1016 +8,754 @@ from ..git_ops.repository import FileChange, RepositoryState
 
 
 class PromptBuilder:
-    """Build optimized prompts for different scenarios."""
+    """Build optimized prompts for Qwen2.5-Coder with structured analysis."""
     
-    def __init__(self, character_limit: int = 150, optimized_mode: bool = False):  # Increased from 72 to 150
+    def __init__(self, character_limit: int = 150, optimized_mode: bool = False, settings=None):
         """Initialize prompt builder with conventional commit standards."""
-        self.character_limit = character_limit  # Increased limit for more descriptive messages
+        self.character_limit = character_limit
         self.optimized_mode = optimized_mode
+        self.settings = settings
     
     def build_commit_prompt(
         self, 
-        repo_state: RepositoryState,
+        repo_state: RepositoryState = None,
         recent_commits: List[Dict] = None,
         file_context: FileChange = None
     ) -> str:
-        """Build commit message generation prompt."""
+        """Build commit message generation prompt optimized for Qwen2.5-Coder."""
         
-        if self.optimized_mode:
-            return self._build_optimized_prompt(repo_state, file_context)
-        else:
-            return self._build_detailed_prompt(repo_state, recent_commits, file_context)
-    
-    def _build_optimized_prompt(self, repo_state: RepositoryState, file_context: FileChange = None) -> str:
-        """Build optimized prompt for fast processing using 2025 best practices."""
-        
-        # For single file context (atomic commits)
         if file_context:
             return self._build_single_file_prompt(file_context)
-        
-        # For multiple files
+        elif repo_state:
+            return self._build_multi_file_prompt(repo_state)
         else:
-            return self._build_multi_file_prompt(repo_state.all_changes)
+            raise ValueError("Either file_context or repo_state must be provided")
     
     def _build_single_file_prompt(self, file_context: FileChange) -> str:
-        """Build targeted single-file prompt with specific context."""
+        """Build optimized single-file prompt with step-by-step analysis."""
         
+        # Extract key information
         file_path = file_context.file_path
         change_type = file_context.change_type
+        scope = self._extract_scope(file_path)
+        diff_content = self._get_focused_diff(file_context.diff_content)
         
-        # Build highly specific prompts based on exact context
-        if change_type == 'D':
-            return self._build_deletion_prompt(file_context)
-        elif change_type == 'A':
-            return self._build_addition_prompt(file_context)
-        else:
-            return self._build_modification_prompt(file_context)
+        # Use ChatML-style structure optimized for Qwen2.5-Coder
+        prompt = f"""You are an expert developer who writes precise git commit messages by carefully analyzing code changes.
+
+## CRITICAL INSTRUCTIONS
+- Focus on WHAT functionality was added/changed/fixed
+- Ignore generic changes like "updates" or "improvements"
+- Be SPECIFIC about the technical change
+- SCOPE: {scope}
+
+## FILE ANALYSIS
+
+### File: {file_path} ({self._get_change_description(change_type)})
+
+{self._get_diff_analysis_for_prompt(diff_content, file_path)}
+
+## STEP-BY-STEP ANALYSIS (Required)
+
+1. **What was added**: What new code/functionality was added?
+2. **What was removed**: What old code was removed/changed?
+3. **Technical Purpose**: What specific problem does this solve?
+4. **Functional Impact**: What can the software do now that it couldn't before?
+
+## FEW-SHOT EXAMPLES
+
+### Example 1: Installation Logic
+**Commit**: `feat(install): add intelligent PATH insertion logic`
+
+### Example 2: API Enhancement
+**Commit**: `feat(ai): add retry logic for API calls`
+
+### Example 3: Configuration Update
+**Commit**: `feat(config): add file size truncation threshold`
+
+## YOUR TASK
+Analyze the changes above and generate a conventional commit message.
+**Format**: type(scope): description
+**Scope**: {scope}
+**Max Length**: {self.character_limit} characters
+
+## SPECIAL CASES TO RECOGNIZE
+- **Version updates**: If you see "v2.0" → "v2.0.1", use `docs(docs):` and mention "bump to v2.0.1 with [improvements]"
+- **README updates**: If modifying README.md, use `docs(docs):` scope and be specific about what was updated
+- **Documentation**: If adding new sections/notes, use `feat(docs):` for new content, `docs(docs):` for updates
+- **IMPORTANT**: ALWAYS use parentheses around scope: `type(scope):` format
+
+## EXAMPLES FOR COMMON CHANGES
+
+**Version Updates**:
+✅ `docs(docs): bump version to v2.0.1 with validation improvements`
+❌ `fix(docs): update v2`
+
+**Documentation Changes**:
+✅ `feat(docs): add troubleshooting guide for validation issues`
+✅ `docs(docs): add comprehensive development guide`
+❌ `docs: update documentation`
+
+**New Features**:
+✅ `feat(ai): add flexible regex validation for commit messages`
+✅ `feat(install): add intelligent PATH insertion logic`
+❌ `feat(ai): improve validation`
+
+**Bug Fixes**:
+✅ `fix(utils): remove unnecessary PromptBuilder initialization`
+✅ `fix(git): resolve diff content extraction issues`
+❌ `fix(core): fix bugs`
+
+## CRITICAL FORMAT REQUIREMENTS
+You MUST respond with ONLY the commit message in this exact format:
+type(scope): description
+
+**CORRECT FORMAT EXAMPLES:**
+- `feat(install-apps): add new installation script`
+- `fix(claude): resolve authentication issue`
+- `refactor(bnet-linux): simplify configuration logic`
+
+**WRONG FORMATS (DO NOT USE):**
+- ❌ `Type: feat Scope: install-apps Description: add new script`
+- ❌ `feat: add new script`
+- ❌ `feat(install-apps) - add new script`
+- ❌ `feat(install-apps) add new script`
+
+**RESPOND WITH ONLY:** type(scope): description
+
+"""
+
+        # Log the final prompt for debugging
+        from loguru import logger
+        logger.info(f"📝 FINAL PROMPT FOR {file_path}:")
+        logger.info(f"📊 Prompt length: {len(prompt)} characters")
+        logger.info(f"🔍 Scope used: {scope}")
+        logger.info(f"📋 Diff analysis method: {self._get_diff_analysis_for_prompt.__name__}")
+        
+        return prompt
     
-    def _build_deletion_prompt(self, file_context: FileChange) -> str:
-        """Build highly specific deletion prompt."""
-        file_path = file_context.file_path
+    def _build_multi_file_prompt(self, repo_state: RepositoryState) -> str:
+        """Build optimized multi-file prompt for repository-wide changes."""
         
-        # Very specific handling for known files
-        if file_path == 'setup':
-            return """FILE: setup (DELETED)
-CONTEXT: Bash setup script removed during migration from bash to Python implementation.
-
-REQUIREMENTS:
-- Format: type(scope): description  
-- Max {self.character_limit} characters
-- Use imperative mood
-- Type: "chore" (maintenance/cleanup)
-- Be specific about bash migration
-
-EXAMPLES:
-- chore: remove deprecated bash setup script
-- chore: remove old setup script after Python migration
-
-COMMIT MESSAGE:"""
+        changes = repo_state.all_changes
+        if not changes:
+            return "No changes detected"
         
-        elif file_path == 'smart-commit.sh':
-            return """FILE: smart-commit.sh (DELETED)  
-CONTEXT: Main bash implementation removed and replaced by Python implementation.
-
-REQUIREMENTS:
-- Format: type(scope): description
-- Max {self.character_limit} characters  
-- Use imperative mood
-- Type: "chore" (maintenance/cleanup)
-- Be specific about bash-to-python migration
-
-EXAMPLES:
-- chore: remove legacy bash implementation
-- chore: remove deprecated bash smart-commit script
-
-COMMIT MESSAGE:"""
-        
-        elif file_path.endswith('.sh'):
-            return f"""FILE: {file_path} (DELETED)
-CONTEXT: Shell script removed as part of codebase migration.
-
-REQUIREMENTS:
-- Format: type(scope): description
-- Max {self.character_limit} characters
-- Use imperative mood  
-- Type: "chore" 
-
-EXAMPLES:
-- chore: remove deprecated shell script
-- chore: remove old bash utilities
-
-COMMIT MESSAGE:"""
-        
-        else:
-            return f"""FILE: {file_path} (DELETED)
-
-REQUIREMENTS:
-- Format: type(scope): description
-- Max {self.character_limit} characters
-- Use imperative mood
-- Type: "chore" or "refactor"
-
-COMMIT MESSAGE:"""
-    
-    def _build_addition_prompt(self, file_context: FileChange) -> str:
-        """Build specific addition prompt."""
-        file_path = file_context.file_path
-        
-        if 'deprecated' in file_path:
-            return f"""FILE: {file_path} (ADDED)
-CONTEXT: Creating directory for archiving deprecated files.
-
-REQUIREMENTS:
-- Format: type(scope): description
-- Max {self.character_limit} characters
-- Type: "chore"
-
-EXAMPLES:
-- chore: create deprecated directory for old files
-- chore: add archive folder for legacy files
-
-COMMIT MESSAGE:"""
-        
-        else:
-            file_type = self._determine_file_type(file_path)
-            scope = self._analyze_scope(file_path)
-            scope_text = f"(scope: {scope})" if scope else ""
-            
-            return f"""FILE: {file_path} (ADDED)
-TYPE: {file_type} {scope_text}
-
-REQUIREMENTS:
-- Format: type(scope): description
-- Max {self.character_limit} characters
-- Use imperative mood
-- Type: "feat" for new features, "chore" for tooling, "test" for tests
-
-COMMIT MESSAGE:"""
-    
-    def _build_modification_prompt(self, file_context: FileChange) -> str:
-        """Build specific modification prompt."""
-        file_path = file_context.file_path
-        purpose = self._analyze_file_purpose(file_context)
-        scope = self._analyze_scope(file_path)
-        
-        # Specific handling for known files
-        if 'install.py' in file_path:
-            diff_preview = self._get_intelligent_diff(file_context)[:200] + "..." if file_context.diff_content else "No diff available"
-            return f"""SCOPE: {scope or "install"} (MANDATORY - use this exact scope)
-
-FILE: {file_path} (MODIFIED)
-
-DIFF PREVIEW:
-{diff_preview}
-
-REQUIREMENTS:
-- Format: type({scope or "install"}): description
-- Max {self.character_limit} characters
-- Use imperative mood
-- Be specific about what was changed in the installation script
-- SCOPE MUST BE: {scope or "install"} (NOT the full file path)
-
-EXAMPLES:
-- fix({scope or "install"}): update installation configuration
-- feat({scope or "install"}): add new installation option
-
-COMMIT MESSAGE:"""        
-        elif 'repository.py' in file_path:
-            diff_preview = self._get_intelligent_diff(file_context)[:200] + "..." if file_context.diff_content else "No diff available"
-            return f"""SCOPE: {scope or "git"} (MANDATORY - use this exact scope)
-
-FILE: {file_path} (MODIFIED)
-
-DIFF PREVIEW:
-{diff_preview}
-
-REQUIREMENTS:
-- Format: type({scope or "git"}): description
-- Max {self.character_limit} characters
-- Use imperative mood
-- Be specific about what was changed in git operations
-- SCOPE MUST BE: {scope or "git"} (NOT the full file path)
-
-EXAMPLES:
-- fix({scope or "git"}): improve rename detection
-- feat({scope or "git"}): add copy detection support
-
-COMMIT MESSAGE:"""        
-        elif 'prompts.py' in file_path:
-            diff_preview = self._get_intelligent_diff(file_context)[:200] + "..." if file_context.diff_content else "No diff available"
-            return f"""SCOPE: {scope or "utils"} (MANDATORY - use this exact scope)
-
-FILE: {file_path} (MODIFIED)
-
-DIFF PREVIEW:
-{diff_preview}
-
-REQUIREMENTS:
-- Format: type({scope or "utils"}): description
-- Max {self.character_limit} characters
-- Use imperative mood
-- Be specific about what was changed in prompt generation
-- SCOPE MUST BE: {scope or "utils"} (NOT the full file path)
-
-EXAMPLES:
-- fix({scope or "utils"}): improve prompt generation
-- feat({scope or "utils"}): add new prompt templates
-
-COMMIT MESSAGE:"""        
-        elif 'message_extractor.py' in file_path:
-            diff_preview = self._get_intelligent_diff(file_context)[:200] + "..." if file_context.diff_content else "No diff available"
-            return f"""SCOPE: {scope or "utils"} (MANDATORY - use this exact scope)
-
-FILE: {file_path} (MODIFIED)
-
-DIFF PREVIEW:
-{diff_preview}
-
-REQUIREMENTS:
-- Format: type({scope or "utils"}): description
-- Max {self.character_limit} characters
-- Use imperative mood
-- Be specific about what was changed in message extraction
-- SCOPE MUST BE: {scope or "utils"} (NOT the full file path)
-
-EXAMPLES:
-- fix({scope or "utils"}): improve message extraction
-- feat({scope or "utils"}): add new extraction features
-
-COMMIT MESSAGE:"""        
-        elif 'base.py' in file_path:
-            diff_preview = self._get_intelligent_diff(file_context)[:200] + "..." if file_context.diff_content else "No diff available"
-            return f"""SCOPE: {scope or "ai"} (MANDATORY - use this exact scope)
-
-FILE: {file_path} (MODIFIED)
-
-DIFF PREVIEW:
-{diff_preview}
-
-REQUIREMENTS:
-- Format: type({scope or "ai"}): description
-- Max {self.character_limit} characters
-- Use imperative mood
-- Be specific about what was changed in the base backend
-- SCOPE MUST BE: {scope or "ai"} (NOT the full file path)
-
-EXAMPLES:
-- fix({scope or "ai"}): improve backend functionality
-- feat({scope or "ai"}): add new backend features
-
-COMMIT MESSAGE:"""        
-        elif 'cli.py' in file_path:
-            diff_preview = self._get_intelligent_diff(file_context)[:200] + "..." if file_context.diff_content else "No diff available"
-            return f"""SCOPE: {scope or "core"} (MANDATORY - use this exact scope)
-
-FILE: {file_path} (MODIFIED)
-
-DIFF PREVIEW:
-{diff_preview}
-
-REQUIREMENTS:
-- Format: type({scope or "core"}): description
-- Max {self.character_limit} characters
-- Use imperative mood
-- Be specific about what was changed in the CLI
-- SCOPE MUST BE: {scope or "core"} (NOT the full file path)
-
-EXAMPLES:
-- fix({scope or "core"}): improve CLI functionality
-- feat({scope or "core"}): add new CLI options
-
-COMMIT MESSAGE:"""        
-        elif 'core.py' in file_path:
-            diff_preview = self._get_intelligent_diff(file_context)[:200] + "..." if file_context.diff_content else "No diff available"
-            return f"""SCOPE: {scope or "core"} (MANDATORY - use this exact scope)
-
-FILE: {file_path} (MODIFIED)
-
-DIFF PREVIEW:
-{diff_preview}
-
-REQUIREMENTS:
-- Format: type({scope or "core"}): description
-- Max {self.character_limit} characters
-- Use imperative mood
-- Be specific about what was changed in the core logic
-- SCOPE MUST BE: {scope or "core"} (NOT the full file path)
-
-EXAMPLES:
-- fix({scope or "core"}): improve core functionality
-- feat({scope or "core"}): add new core features
-
-COMMIT MESSAGE:"""        
-        elif 'llamacpp.py' in file_path:
-            diff_preview = self._get_intelligent_diff(file_context)[:200] + "..." if file_context.diff_content else "No diff available"
-            return f"""SCOPE: {scope or "ai"} (MANDATORY - use this exact scope)
-
-FILE: {file_path} (MODIFIED)
-
-DIFF PREVIEW:
-{diff_preview}
-
-REQUIREMENTS:
-- Format: type({scope or "ai"}): description
-- Max {self.character_limit} characters
-- Use imperative mood
-- Be specific about what was changed in the llama.cpp backend
-- SCOPE MUST BE: {scope or "ai"} (NOT the full file path)
-
-EXAMPLES:
-- fix({scope or "ai"}): improve llama.cpp backend
-- feat({scope or "ai"}): add new backend features
-
-COMMIT MESSAGE:"""        
-        else:
-            diff_preview = self._get_intelligent_diff(file_context)[:200] + "..." if file_context.diff_content else "No diff available"
-            
-            return f"""SCOPE: {scope or "smart_commit"} (MANDATORY - use this exact scope)
-
-FILE: {file_path} (MODIFIED)
-
-DIFF PREVIEW:
-{diff_preview}
-
-REQUIREMENTS:
-- Format: type({scope or "smart_commit"}): description
-- Max {self.character_limit} characters
-- Use imperative mood
-- Scope MUST be "{scope or "smart_commit"}" (from file path)
-- SCOPE MUST BE: {scope or "smart_commit"} (NOT the full file path)
-- Be specific about the change
-
-EXAMPLES:
-- fix({scope or "smart_commit"}): resolve import error in core module
-- feat({scope or "smart_commit"}): add new configuration option
-- refactor({scope or "smart_commit"}): improve error handling
-
-OUTPUT: Generate ONLY a conventional commit message, nothing else.
-COMMIT MESSAGE:"""
-    
-    def _build_multi_file_prompt(self, changes: List[FileChange]) -> str:
-        """Build sophisticated multi-file prompt."""
-        
-        # Analyze the overall change pattern
-        change_pattern = self._analyze_change_pattern(changes)
-        
-        prompt_sections = []
-        
-        # Header
-        prompt_sections.append("""REQUIREMENTS:
-- Follow Conventional Commits 1.0.0 specification exactly
-- Format: type(scope): description
-- Maximum {char_limit} characters
-- Use imperative mood
-- Focus on the primary purpose of the changes
-- Output ONLY the commit message, nothing else""".format(char_limit=self.character_limit))
-        
-        # Change pattern analysis
-        prompt_sections.append(f"""CHANGE PATTERN ANALYSIS:
-{change_pattern}""")
-        
-        # Summarized changes
-        changes_summary = self._build_intelligent_changes_summary(changes)
-        prompt_sections.append(f"""CHANGES SUMMARY:
-{changes_summary}""")
-        
-        # Type guidance
+        # Analyze change patterns
+        change_summary = self._analyze_changes(changes)
+        primary_scope = self._determine_primary_scope(changes)
         primary_type = self._determine_primary_type(changes)
-        prompt_sections.append(f"""RECOMMENDED TYPE: {primary_type}
-{self._get_type_rationale(primary_type, changes)}""")
         
-        # Final instruction
-        prompt_sections.append("COMMIT MESSAGE:")
+        # Build focused analysis of actual changes
+        detailed_changes = self._get_detailed_changes_analysis(changes)
         
-        return "\n\n".join(prompt_sections)
+        prompt = f"""You are an expert developer analyzing multiple code changes to generate ONE precise conventional commit message.
+
+## CRITICAL INSTRUCTIONS
+- Analyze the actual code changes, not just file names
+- Find the COMMON PURPOSE across all changes
+- Be SPECIFIC about what functionality was added/changed/fixed
+- Avoid generic descriptions
+- SCOPE: {primary_scope}
+
+## REPOSITORY CHANGES ANALYSIS
+
+### Change Summary: {change_summary}
+
+### Detailed Technical Changes:
+{detailed_changes}
+
+## STEP-BY-STEP ANALYSIS (Required)
+
+1. **Common Theme**: What is the shared purpose across these changes?
+2. **Primary Impact**: What new capability or fix is being delivered?
+3. **Technical Category**: Is this a feature, fix, refactor, or maintenance?
+
+## FEW-SHOT EXAMPLES
+
+### Example 1: Installation Enhancement
+**Files**: install.py (modified), core.py (modified)
+**Changes**: Added PATH override detection + fixed method signature error
+**Correct**: `fix(install): enhance PATH configuration to handle shell overrides`
+**Wrong**: `fix(install): update installation system`
+
+### Example 2: AI System Improvement  
+**Files**: prompts.py (rewritten), ai_backends/base.py (modified)
+**Changes**: Complete prompt rewrite + backend interface update
+**Correct**: `refactor(ai): redesign prompt system for better accuracy`
+**Wrong**: `refactor(ai): improve AI functionality`
+
+### Example 3: Core Architecture Fix
+**Files**: core.py (method added), utils/extractor.py (modified)  
+**Changes**: Added missing method + updated extraction logic
+**Correct**: `fix(core): add missing traditional commit message generation`
+**Wrong**: `fix(core): improve core functionality`
+
+## COMMIT MESSAGE RULES
+
+**Format**: `type({primary_scope}): description`
+**Max Length**: {self.character_limit} characters
+
+**Suggested Type**: {primary_type}
+**Suggested Scope**: {primary_scope}
+
+**Description Must Be**:
+- SPECIFIC about the main technical change
+- Focused on the PRIMARY purpose (not listing all changes)
+- Imperative mood
+- NO generic words unless very specific about what was updated/improved
+
+## TYPE SELECTION
+- `feat`: NEW functionality/capability added
+- `fix`: BUG corrected or missing functionality added  
+- `refactor`: Code restructured without changing behavior
+- `chore`: Maintenance, cleanup, dependencies
+
+## YOUR ANALYSIS AND RESPONSE
+
+Analyze the changes above and generate ONLY the commit message:"""
+
+        return prompt
     
-    def _build_detailed_prompt(
-        self, 
-        repo_state: RepositoryState, 
-        recent_commits: List[Dict] = None,
-        file_context: FileChange = None
-    ) -> str:
-        """Build detailed prompt for comprehensive analysis."""
+    def _extract_scope(self, file_path: str) -> str:
+        """Extract conventional commit scope from file path."""
+        parts = file_path.split('/')
         
-        # Build context sections
-        context_sections = []
+        # Root level files
+        if len(parts) == 1:
+            scope_map = {
+                'install.py': 'install',
+                'pyproject.toml': 'build',
+                'README.md': 'docs',
+                'CLAUDE.md': 'docs',
+                'LICENSE': 'docs'
+            }
+            return scope_map.get(file_path, 'root')
         
-        # Git changes section
-        if file_context:
-            diff_content = self._truncate_diff(file_context.diff_content, 300)
-            context_sections.append(f"""## File: {file_context.file_path}
-```diff
-{diff_content}
-```""")
-        else:
-            changes_summary = self._build_changes_summary(repo_state.all_changes)
-            context_sections.append(f"## Git Changes:\n{changes_summary}")
+        # smart_commit directory structure
+        if parts[0] == 'smart_commit':
+            if len(parts) == 2:
+                # Direct files in smart_commit/
+                file_scope_map = {
+                    'cli.py': 'core',
+                    'core.py': 'core',
+                    '__init__.py': 'core'
+                }
+                return file_scope_map.get(parts[1], 'core')
+            elif len(parts) > 2:
+                # Subdirectories
+                subdir_scope_map = {
+                    'ai_backends': 'ai',
+                    'git_ops': 'git',
+                    'ui': 'ui',
+                    'utils': 'utils',
+                    'config': 'config'
+                }
+                return subdir_scope_map.get(parts[1], parts[1])
         
-        # Recent commits context
-        if recent_commits:
-            commits_text = "\n".join([
-                f"- {commit['hash']}: {commit['message']}" 
-                for commit in recent_commits[:3]
-            ])
-            context_sections.append(f"## Recent Commits (for style context):\n{commits_text}")
-        
-        # Instructions section
-        instructions = self._build_detailed_instructions(file_context)
-        
-        return "\n\n".join(context_sections + [instructions])
-    
-    def _build_detailed_instructions(self, file_context: FileChange = None) -> str:
-        """Build detailed instructions section."""
-        
-        scope_rules = ""
-        if file_context and file_context.scope:
-            scope_rules = f"""
-## SCOPE RULES (MANDATORY):
-- For file {file_context.file_path}, use scope '{file_context.scope}' if appropriate
-- Extract scope from the directory structure of the file being modified
-- Examples: 'src/auth/login.js' → scope = 'src', 'docs/api.md' → scope = 'docs'
-- Root level files → NO scope (format: type: description)
-"""
-        else:
-            scope_rules = """
-## SCOPE RULES (MANDATORY):
-- Analyze file paths to determine appropriate scope
-- Use the first directory name from file paths as scope
-- Examples: 'src/components/Button.js' → scope = 'src'
-- Examples: 'tests/unit/helpers.py' → scope = 'tests'  
-- Root level files → NO scope (format: type: description)
-"""
-        
-        return f"""## Instructions:
-1. Carefully analyze the code changes above
-2. Write ONE commit message in this exact format: type(scope): description
-3. Keep it under {self.character_limit} characters (allows longer, more descriptive messages)
-4. Use present tense verbs
-5. Make the description SPECIFIC about what actually changed in the code
-6. CRITICAL: Follow the scope rules below exactly
-
-{scope_rules}
-
-## Types:
-- feat: new features
-- fix: bug fixes
-- docs: documentation changes
-- style: formatting, missing semicolons, etc
-- refactor: code change that neither fixes bug nor adds feature
-- test: adding missing tests
-- chore: updating grunt tasks etc; no production code change
-- build: changes affecting build system or dependencies
-- ci: changes to CI configuration files and scripts
-- perf: performance improvements
-- revert: reverting previous commits
-
-## Quality Guidelines:
-- Pay special attention to lines starting with '+' as they show new content
-- Avoid generic terms like 'implement features', 'update code', 'add new feature'
-- When you see new options, commands, or features, mention them specifically
-- Focus on the business value or technical improvement
-
-## Examples (based on actual file paths):
-feat(auth): add JWT token validation with expiry handling
-fix(api): resolve memory leak in user session management  
-perf(database): optimize query performance with connection pooling
-refactor(components): simplify button component props interface
-docs(readme): add installation requirements and setup guide
-test(utils): add unit tests for date formatting functions
-
-## Your response:
-Write ONLY the commit message, nothing else:"""
-    
-    def _summarize_changes(self, changes: List[FileChange]) -> str:
-        """Create a brief summary of changes with context."""
-        if not changes:
-            return "No changes detected"
-        
-        summary_lines = []
-        deleted_files = []
-        added_files = []
-        modified_files = []
-        
-        # Categorize changes
-        for change in changes:
-            if change.change_type == 'D':
-                deleted_files.append(change.file_path)
-            elif change.change_type == 'A':
-                added_files.append(change.file_path)
-            elif change.change_type == 'M':
-                modified_files.append(change.file_path)
-        
-        # Analyze patterns to provide context
-        context_hints = []
-        
-        # Detect migrations/rewrites
-        if deleted_files and added_files:
-            bash_files = [f for f in deleted_files if f.endswith('.sh') or 'setup' in f]
-            python_dirs = [f for f in added_files if 'smart_commit' in f or f.endswith('.py')]
-            if bash_files and python_dirs:
-                context_hints.append("🔄 MIGRATION: Bash to Python implementation")
-        
-        # Detect deprecation
-        if any('deprecated' in f for f in added_files):
-            context_hints.append("📁 DEPRECATION: Moving old files to deprecated folder")
-        
-        # Build summary with context
-        if context_hints:
-            summary_lines.extend([f"## Context: {hint}" for hint in context_hints])
-            summary_lines.append("")
-        
-        # List changes by type
-        for change in changes[:5]:  # Limit to first 5 files
-            action = {
-                'M': 'Modified',
-                'A': 'Added', 
-                'D': 'Deleted',
-                'R': 'Renamed',
-                'C': 'Copied'
-            }.get(change.change_type, 'Changed')
+        # Other directories
+        if len(parts) >= 2:
+            primary_scope = parts[0]
             
-            # Add more context for specific file types
-            if change.change_type == 'D' and (change.file_path.endswith('.sh') or 'setup' == change.file_path):
-                summary_lines.append(f"- {action}: {change.file_path} (old bash implementation)")
-            elif change.change_type == 'A' and 'deprecated' in change.file_path:
-                summary_lines.append(f"- {action}: {change.file_path} (archival directory)")
-            elif change.change_type == 'M' and 'repository.py' in change.file_path:
-                summary_lines.append(f"- {action}: {change.file_path} (git operations enhancement)")
-            else:
-                summary_lines.append(f"- {action}: {change.file_path}")
+            # Special handling for specific directory patterns
+            if primary_scope == 'install-apps':
+                # Always use install-apps scope for files in this directory
+                return 'install-apps'
+            elif primary_scope == 'bnet-linux':
+                # Always use bnet-linux scope for files in this directory
+                return 'bnet-linux'
+            elif primary_scope == 'claude':
+                # Always use claude scope for files in this directory
+                return 'claude'
+            
+            # Default behavior for other directories
+            return primary_scope
         
-        if len(changes) > 5:
-            summary_lines.append(f"... and {len(changes) - 5} more files")
-        
-        return "\n".join(summary_lines)
+        # Fallback
+        return parts[0] if parts else 'root'
     
-    def _build_changes_summary(self, changes: List[FileChange]) -> str:
-        """Build detailed changes summary with diff content."""
-        if not changes:
-            return "No changes detected"
-        
-        summary_parts = []
-        
-        for i, change in enumerate(changes[:3]):  # Show detailed diff for first 3 files
-            diff_content = self._truncate_diff(change.diff_content, 200)
-            summary_parts.append(f"""### {change.file_path} ({change.change_type})
-```diff
-{diff_content}
-```""")
-        
-        if len(changes) > 3:
-            remaining = changes[3:]
-            file_list = ", ".join([c.file_path for c in remaining[:5]])
-            if len(remaining) > 5:
-                file_list += f" and {len(remaining) - 5} more"
-            summary_parts.append(f"\n### Additional files changed: {file_list}")
-        
-        return "\n\n".join(summary_parts)
+    def _analyze_scope(self, file_path: str) -> str:
+        """Alias for _extract_scope for backward compatibility."""
+        return self._extract_scope(file_path)
     
-    def _truncate_diff(self, diff_content: str, max_lines: int) -> str:
-        """Truncate diff content to specified number of lines."""
+    def _get_focused_diff(self, diff_content: str, max_lines: int = None) -> str:
+        """Get the most important parts of the diff for analysis."""
         if not diff_content:
             return "No diff content available"
         
+        # Use configured default if not specified
+        if max_lines is None:
+            max_lines = self.settings.git.max_diff_lines if self.settings else 500
+        
         lines = diff_content.split('\n')
+        
+        # If diff is manageable, use existing logic
         if len(lines) <= max_lines:
-            return diff_content
+            return self._get_focused_diff_small(lines, max_lines)
         
-        # Keep early context and show truncation
-        early_lines = lines[:max_lines - 2]
-        truncated_count = len(lines) - len(early_lines)
-        
-        early_lines.append(f"... [truncated: {truncated_count} more lines]")
-        
-        return '\n'.join(early_lines)
+        # Smart truncation for large diffs
+        return self._smart_truncate_large_diff(lines, max_lines)
     
-    # New sophisticated analysis methods based on 2025 best practices
-    
-    def _analyze_file_context(self, file_context: FileChange) -> str:
-        """Comprehensive analysis of file context for better AI understanding."""
-        file_path = file_context.file_path
-        change_type = file_context.change_type
-        
-        analysis_parts = []
-        
-        # File type analysis
-        file_type = self._determine_file_type(file_path)
-        analysis_parts.append(f"File Type: {file_type}")
-        
-        # Project structure analysis  
-        scope = self._analyze_scope(file_path)
-        if scope:
-            analysis_parts.append(f"Scope: {scope}")
-        
-        # Pattern detection
-        patterns = self._detect_patterns(file_context)
-        if patterns:
-            analysis_parts.append(f"Detected Patterns: {', '.join(patterns)}")
-        
-        # Purpose analysis
-        purpose = self._analyze_file_purpose(file_context)
-        if purpose:
-            analysis_parts.append(f"Purpose: {purpose}")
-        
-        return "\n".join(analysis_parts)
-    
-    def _determine_file_type(self, file_path: str) -> str:
-        """Determine the type of file based on extension and path."""
-        if file_path.endswith('.py'):
-            return "Python source code"
-        elif file_path.endswith('.sh'):
-            return "Shell script"
-        elif file_path.endswith('.md'):
-            return "Documentation"
-        elif file_path.endswith(('.yml', '.yaml')):
-            return "Configuration"
-        elif file_path.endswith('.json'):
-            return "Data/Configuration"
-        elif 'test' in file_path.lower():
-            return "Test file"
-        elif file_path == 'setup':
-            return "Setup/Installation script"
-        elif '/' not in file_path:
-            return "Root configuration file"
-        else:
-            return "Source code"
-    
-    def _analyze_scope(self, file_path: str) -> Optional[str]:
-        """Analyze conventional commit scope from file path."""
-        parts = file_path.split('/')
-        
-        # Handle root-level files first
-        if len(parts) == 1:
-            # Root-level files get specific scopes
-            root_file_scopes = {
-                'install.py': 'install',
-                'CLAUDE.md': 'docs',
-                'CLAUDE-v2.md': 'docs',
-                'README.md': 'docs',
-                'README-v2.md': 'docs',
-                'UPCOMING.md': 'docs',
-                'LICENSE': 'docs',
-                'pyproject.toml': 'build',
-                'setup.py': 'build',
-                'requirements.txt': 'build',
-                '.gitignore': 'config'
-            }
-            return root_file_scopes.get(file_path, 'smart_commit')
-        
-        # For smart_commit directory, use the subdirectory as scope
-        if len(parts) > 1 and parts[0] == 'smart_commit' and len(parts) > 1:
-            subdir = parts[1]
-            
-            # Map specific filenames to their appropriate scopes
-            filename_scope_mapping = {
-                'cli.py': 'core',
-                'core.py': 'core',
-                'base.py': 'ai',
-                'llamacpp.py': 'ai',
-                'repository.py': 'git',
-                'console.py': 'ui',
-                'message_extractor.py': 'utils',
-                'prompts.py': 'utils',
-                'settings.py': 'config'
-            }
-            
-            # Check if this is a specific filename that needs mapping
-            if subdir in filename_scope_mapping:
-                return filename_scope_mapping[subdir]
-            
-            # Map subdirectories to concise scopes
-            scope_mapping = {
-                'ai_backends': 'ai',
-                'git_ops': 'git', 
-                'ui': 'ui',
-                'utils': 'utils',
-                'config': 'config',
-                'core': 'core'
-            }
-            return scope_mapping.get(subdir, subdir)
-        
-        # Use the most relevant part for scope
-        elif len(parts) > 1:
-            if parts[0] in ['src', 'lib', 'core']:
-                return parts[0]
-            elif parts[0] in ['test', 'tests']:
-                return 'test'
-            elif parts[0] in ['docs', 'doc']:
-                return 'docs'
-            elif parts[0] in ['config', 'configs']:
-                return 'config'
-            else:
-                return parts[0]
-        
-        return 'smart_commit'  # Default fallback
-    
-    def _detect_patterns(self, file_context: FileChange) -> List[str]:
-        """Detect common patterns in file changes."""
-        patterns = []
-        file_path = file_context.file_path
-        change_type = file_context.change_type
-        
-        # Migration patterns
-        if change_type == 'D' and (file_path.endswith('.sh') or file_path == 'setup'):
-            patterns.append("bash-to-python-migration")
-        
-        if 'deprecated' in file_path:
-            patterns.append("deprecation")
-        
-        # Maintenance patterns
-        if change_type == 'M' and any(word in file_path for word in ['fix', 'repair', 'bug']):
-            patterns.append("bug-fix")
-        
-        # Feature patterns
-        if change_type == 'A' and file_path.endswith('.py'):
-            patterns.append("new-feature")
-        
-        # Refactor patterns
-        if change_type == 'M' and any(word in file_path for word in ['refactor', 'improve', 'enhance']):
-            patterns.append("refactoring")
-        
-        return patterns
-    
-    def _analyze_file_purpose(self, file_context: FileChange) -> Optional[str]:
-        """Analyze the purpose of the file change."""
-        file_path = file_context.file_path
-        change_type = file_context.change_type
-        
-        # Specific file analysis
-        if file_path == 'setup' and change_type == 'D':
-            return "Removing old bash setup script as part of Python migration"
-        elif file_path == 'smart-commit.sh' and change_type == 'D':
-            return "Removing old bash implementation after Python rewrite"
-        elif 'repository.py' in file_path and change_type == 'M':
-            return "Improving git operations handling"
-        elif 'prompts.py' in file_path and change_type == 'M':
-            return "Enhancing AI prompt generation"
-        elif 'message_extractor.py' in file_path and change_type == 'M':
-            return "Improving commit message extraction logic"
-        elif 'base.py' in file_path and change_type == 'M':
-            return "Improving backend base functionality"
-        elif 'cli.py' in file_path and change_type == 'M':
-            return "Improving command-line interface"
-        elif 'core.py' in file_path and change_type == 'M':
-            return "Improving core application logic"
-        elif 'llamacpp.py' in file_path and change_type == 'M':
-            return "Improving llama.cpp backend functionality"
-        elif 'deprecated' in file_path and change_type == 'A':
-            return "Creating archive for deprecated files"
-        
-        return None
-    
-    def _get_change_description(self, change_type: str) -> str:
-        """Get human-readable description of change type."""
-        descriptions = {
-            'A': "New file added",
-            'D': "File deleted", 
-            'M': "File modified",
-            'R': "File renamed",
-            'C': "File copied"
-        }
-        return descriptions.get(change_type, "File changed")
-    
-    def _build_deletion_context(self, file_context: FileChange) -> str:
-        """Build rich context for deleted files."""
-        file_path = file_context.file_path
-        
-        context_parts = []
-        context_parts.append("DELETION CONTEXT:")
-        
-        # Specific guidance for known files
-        if file_path == 'setup':
-            context_parts.append("- This was a bash setup script for configuring the tool")
-            context_parts.append("- Part of migration from bash to Python implementation")
-            context_parts.append("- Recommended type: chore")
-            context_parts.append("- Example: chore: remove deprecated bash setup script")
-        elif file_path == 'smart-commit.sh':
-            context_parts.append("- This was the main bash implementation of smart-commit")
-            context_parts.append("- Being replaced by Python implementation")
-            context_parts.append("- Recommended type: chore")
-            context_parts.append("- Example: chore: remove legacy bash implementation")
-        elif file_path.endswith('.sh'):
-            context_parts.append("- This was a shell script")
-            context_parts.append("- Likely part of migration to Python")
-            context_parts.append("- Recommended type: chore")
-        else:
-            context_parts.append("- File removal as part of codebase cleanup")
-            context_parts.append("- Consider if this is part of a larger refactoring")
-        
-        return "\n".join(context_parts)
-    
-    def _build_addition_context(self, file_context: FileChange) -> str:
-        """Build rich context for added files."""
-        file_path = file_context.file_path
-        
-        context_parts = []
-        context_parts.append("ADDITION CONTEXT:")
-        
-        if 'deprecated' in file_path:
-            context_parts.append("- Creating archive directory for old files")
-            context_parts.append("- Recommended type: chore or refactor")
-        elif file_path.endswith('.py'):
-            context_parts.append("- New Python module/script")
-            context_parts.append("- Recommended type: feat (if new feature) or chore (if tooling)")
-        elif 'test' in file_path:
-            context_parts.append("- New test file")
-            context_parts.append("- Recommended type: test")
-        
-        # Show truncated content if available
-        if file_context.diff_content:
-            content_preview = self._truncate_diff(file_context.diff_content, 50)
-            context_parts.append(f"\nFILE CONTENT PREVIEW:\n```\n{content_preview}\n```")
-        
-        return "\n".join(context_parts)
-    
-    def _get_intelligent_diff(self, file_context: FileChange) -> str:
-        """Get intelligently truncated diff content."""
-        if not file_context.diff_content:
-            return "No diff content available"
-        
-        # For modifications, focus on the most important changes
-        lines = file_context.diff_content.split('\n')
-        
-        # Prioritize added/removed lines
+    def _get_focused_diff_small(self, lines: list, max_lines: int) -> str:
+        """Original focused diff logic for small files."""
+        # Prioritize important lines
         important_lines = []
         context_lines = []
         
         for line in lines:
-            if line.startswith(('+', '-')):
-                important_lines.append(line)
-            else:
+            if line.startswith(('+', '-')) and not line.startswith(('+++', '---')):
+                # Only include substantive changes, not just whitespace
+                if line.strip() not in ['+', '-'] and len(line.strip()) > 3:
+                    important_lines.append(line)
+            elif line.startswith('@@'):
                 context_lines.append(line)
         
-        # Build intelligent diff
-        result_lines = []
+        # Build focused diff
+        result = []
         
-        # Add some context
-        result_lines.extend(context_lines[:5])
+        # Add some context headers
+        for line in context_lines[:3]:
+            result.append(line)
         
-        # Add important changes
-        result_lines.extend(important_lines[:20])
+        # Add the most important changes
+        for line in important_lines[:max_lines]:
+            result.append(line)
         
         # Add truncation notice if needed
-        total_lines = len(lines)
-        shown_lines = len(result_lines)
-        if shown_lines < total_lines:
-            result_lines.append(f"... [showing {shown_lines} of {total_lines} lines]")
+        if len(important_lines) > max_lines:
+            result.append(f"... [showing {max_lines} of {len(important_lines)} change lines]")
         
-        return '\n'.join(result_lines)
+        return '\n'.join(result)
     
-    def _build_type_guidance(self, file_context: FileChange) -> str:
-        """Build specific type guidance based on the change."""
-        file_path = file_context.file_path
-        change_type = file_context.change_type
+    def _smart_truncate_large_diff(self, lines: list, max_lines: int = 500) -> str:
+        """Smart truncation for large diffs that preserves important changes."""
         
-        guidance_parts = []
-        guidance_parts.append("TYPE GUIDANCE:")
+        # For very large diffs, use intelligent analysis instead of raw truncation
+        if len(lines) > 800:  # Threshold for very large diffs
+            return self._analyze_large_diff_significance('\n'.join(lines))
         
-        # Specific recommendations
-        if change_type == 'D':
-            if file_path.endswith('.sh') or file_path == 'setup':
-                guidance_parts.append("RECOMMENDED: chore (removing deprecated bash files)")
-            else:
-                guidance_parts.append("RECOMMENDED: chore or refactor (cleanup)")
-        elif change_type == 'A':
-            if 'test' in file_path:
-                guidance_parts.append("RECOMMENDED: test (adding tests)")
-            elif 'deprecated' in file_path:
-                guidance_parts.append("RECOMMENDED: chore (organizing files)")
-            else:
-                guidance_parts.append("RECOMMENDED: feat (new functionality) or chore (tooling)")
-        elif change_type == 'M':
-            if 'fix' in file_path.lower() or 'bug' in file_path.lower():
-                guidance_parts.append("RECOMMENDED: fix (bug fixes)")
-            else:
-                guidance_parts.append("RECOMMENDED: feat (new features), fix (bugs), or refactor (improvements)")
+        # Always include file headers
+        header_lines = [line for line in lines if line.startswith(('---', '+++'))]
         
-        # Add type definitions
-        guidance_parts.append("\nTYPE DEFINITIONS:")
-        guidance_parts.append("- feat: new feature")
-        guidance_parts.append("- fix: bug fix") 
-        guidance_parts.append("- chore: maintenance, no production code change")
-        guidance_parts.append("- refactor: code improvement without changing behavior")
-        guidance_parts.append("- docs: documentation changes")
-        guidance_parts.append("- test: adding/updating tests")
+        # Include diff context markers (hunk headers)
+        context_lines = [line for line in lines if line.startswith('@@')]
         
-        return "\n".join(guidance_parts)
+        # Prioritize actual code changes (additions/deletions)
+        change_lines = []
+        for line in lines:
+            if line.startswith(('+', '-')) and not line.startswith(('+++', '---')):
+                # Only include substantive changes, not just whitespace
+                if line.strip() not in ['+', '-'] and len(line.strip()) > 3:
+                    change_lines.append(line)
+        
+        # Include function/class context for better AI understanding
+        context_lines_with_code = []
+        for i, line in enumerate(lines):
+            if any(keyword in line for keyword in ['def ', 'class ', 'function ', 'export ', 'import ', 'async def ']):
+                # Include a few lines before and after for context
+                start = max(0, i-2)
+                end = min(len(lines), i+3)
+                context_lines_with_code.extend(lines[start:end])
+        
+        # Calculate how many lines to allocate to each category
+        total_original = len(lines)
+        change_limit = max_lines // 2  # 50% for actual changes
+        context_limit = max_lines // 4  # 25% for context
+        header_limit = max_lines // 4  # 25% for headers and context markers
+        
+        # Build truncated diff
+        result = []
+        
+        # Add file headers
+        result.extend(header_lines[:header_limit])
+        
+        # Add diff context markers
+        result.extend(context_lines[:header_limit])
+        
+        # Add the most important changes
+        result.extend(change_lines[:change_limit])
+        
+        # Add function/class context
+        result.extend(context_lines_with_code[:context_limit])
+        
+        # Add truncation notice
+        if total_original > max_lines:
+            result.append(f"\n... [showing {len(result)} of {total_original} lines]")
+            result.append(f"... [truncated for performance - file has {len(change_lines)} actual changes]")
+            result.append(f"... [focusing on most significant changes for AI analysis]")
+        
+        return '\n'.join(result)
     
-    def _analyze_change_pattern(self, changes: List[FileChange]) -> str:
-        """Analyze the overall pattern of changes."""
-        if not changes:
-            return "No changes detected"
+    def _analyze_large_diff_significance(self, diff_content: str) -> str:
+        """Analyze large diffs to extract only the most significant changes."""
+        if not diff_content:
+            return "No diff content available"
         
-        # Count change types
-        deletions = sum(1 for c in changes if c.change_type == 'D')
-        additions = sum(1 for c in changes if c.change_type == 'A') 
-        modifications = sum(1 for c in changes if c.change_type == 'M')
+        lines = diff_content.split('\n')
         
-        pattern_parts = []
-        pattern_parts.append(f"Total files: {len(changes)}")
-        pattern_parts.append(f"Deletions: {deletions}, Additions: {additions}, Modifications: {modifications}")
+        # For very large diffs, focus on structural changes
+        if len(lines) > 200:
+            return self._extract_structural_changes(lines)
         
-        # Detect patterns
-        patterns = []
-        if deletions > 0 and any(c.file_path.endswith('.sh') for c in changes if c.change_type == 'D'):
-            patterns.append("bash-to-python-migration")
-        if any('deprecated' in c.file_path for c in changes):
-            patterns.append("file-organization")
-        if modifications > deletions + additions:
-            patterns.append("enhancement/improvement")
-        
-        if patterns:
-            pattern_parts.append(f"Detected patterns: {', '.join(patterns)}")
-        
-        return "\n".join(pattern_parts)
+        # For medium diffs, use focused analysis
+        return self._extract_key_changes(lines)
     
-    def _build_intelligent_changes_summary(self, changes: List[FileChange]) -> str:
-        """Build an intelligent summary of all changes."""
+    def _extract_structural_changes(self, lines: list) -> str:
+        """Extract structural changes from very large diffs."""
+        structural_changes = []
+        
+        # Look for class/method definitions, imports, and major structural elements
+        for i, line in enumerate(lines):
+            line = line.strip()
+            
+            # Class definitions
+            if line.startswith('+class ') or line.startswith('-class '):
+                structural_changes.append(f"Class change: {line[1:].split('(')[0].split(':')[0].strip()}")
+            
+            # Method definitions
+            elif line.startswith('+    def ') or line.startswith('-    def '):
+                method_name = line[1:].split('(')[0].split('def ')[1].strip()
+                structural_changes.append(f"Method change: {method_name}")
+            
+            # Import statements
+            elif line.startswith('+from ') or line.startswith('-from ') or line.startswith('+import ') or line.startswith('-import '):
+                structural_changes.append(f"Import change: {line[1:].strip()}")
+            
+            # Major comment blocks
+            elif line.startswith('+"""') or line.startswith('-"""'):
+                if i + 1 < len(lines) and '"""' in lines[i + 1]:
+                    structural_changes.append("Docstring change")
+        
+        if structural_changes:
+            return "Major structural changes detected:\n" + "\n".join(structural_changes[:10])  # Limit to 10 changes
+        else:
+            return "Large refactoring with many line changes"
+    
+    def _extract_key_changes(self, lines: list) -> str:
+        """Extract key changes from medium-sized diffs."""
+        key_changes = []
+        
+        for line in lines:
+            line = line.strip()
+            if line.startswith('+') and ('def ' in line or 'class ' in line or 'import ' in line or 'from ' in line):
+                key_changes.append(f"Added: {line[1:].strip()}")
+            elif line.startswith('-') and ('def ' in line or 'class ' in line or 'import ' in line or 'from ' in line):
+                key_changes.append(f"Removed: {line[1:].strip()}")
+        
+        if key_changes:
+            return "Key changes:\n" + "\n".join(key_changes[:5])  # Limit to 5 changes
+        else:
+            return "General code modifications"
+    
+    def _get_diff_analysis_for_prompt(self, diff_content: str, file_path: str) -> str:
+        """Get intelligent diff analysis for the prompt instead of raw diff content."""
+        from loguru import logger
+        
+        logger.info(f"🔍 ANALYZING DIFF FOR: {file_path}")
+        logger.info(f"📊 Raw diff content length: {len(diff_content)} characters")
+        
+        if not diff_content:
+            logger.warning(f"❌ No diff content available for {file_path}")
+            return "No diff content available"
+        
+        lines = diff_content.split('\n')
+        logger.info(f"📈 Diff has {len(lines)} lines")
+        
+        # For extremely large diffs, provide a high-level summary
+        if len(lines) > 1000:
+            logger.info(f"🚨 EXTREMELY LARGE DIFF DETECTED: {len(lines)} lines - using summary analysis")
+            result = self._get_extremely_large_diff_summary(lines, file_path)
+            logger.info(f"📝 Generated summary for extremely large diff: {len(result)} characters")
+            return result
+        
+        # For large diffs, provide structural analysis
+        elif len(lines) > 500:
+            logger.info(f"⚠️ LARGE DIFF DETECTED: {len(lines)} lines - using structural analysis")
+            result = self._get_large_diff_summary(lines, file_path)
+            logger.info(f"📝 Generated summary for large diff: {len(result)} characters")
+            return result
+        
+        # For normal diffs, provide focused content
+        else:
+            logger.info(f"✅ NORMAL DIFF: {len(lines)} lines - using raw content")
+            result = self._get_normal_diff_content(diff_content)
+            logger.info(f"📝 Using normal diff content: {len(result)} characters")
+            return result
+    
+    def _get_extremely_large_diff_summary(self, lines: list, file_path: str) -> str:
+        """Provide a high-level summary for extremely large diffs."""
+        from loguru import logger
+        
+        logger.info(f"🔍 Generating extremely large diff summary for {file_path}")
+        
+        # Count changes
+        additions = [line for line in lines if line.startswith('+') and not line.startswith('+++')]
+        deletions = [line for line in lines if line.startswith('-') and not line.startswith('---')]
+        
+        logger.info(f"📊 Counted {len(additions)} additions and {len(deletions)} deletions")
+        
+        # Look for major structural indicators
+        structural_changes = []
+        for line in lines:
+            line = line.strip()
+            if line.startswith('+class ') or line.startswith('-class '):
+                structural_changes.append("Class structure changes")
+            elif line.startswith('+    def ') or line.startswith('-    def '):
+                structural_changes.append("Method signature changes")
+            elif line.startswith('+from ') or line.startswith('-from ') or line.startswith('+import ') or line.startswith('-import '):
+                structural_changes.append("Import/dependency changes")
+        
+        logger.info(f"🏗️ Detected structural changes: {list(set(structural_changes))}")
+        
+        summary = f"**EXTREMELY LARGE REFACTORING DETECTED**\n\n"
+        summary += f"File: {file_path}\n"
+        summary += f"Total lines changed: {len(lines)}\n"
+        summary += f"Additions: {len(additions)} lines\n"
+        summary += f"Deletions: {len(deletions)} lines\n\n"
+        
+        if structural_changes:
+            summary += "**Major Changes Detected:**\n"
+            summary += "\n".join(set(structural_changes)) + "\n\n"
+        
+        summary += "**Analysis Required:**\n"
+        summary += "This is a massive refactoring. Focus on the overall purpose and impact rather than individual line changes.\n"
+        summary += "What was the main goal of this refactoring? What architectural improvements were made?"
+        
+        logger.info(f"📝 Generated extremely large diff summary: {len(summary)} characters")
+        logger.info(f"📋 Summary preview: {summary[:200]}...")
+        
+        return summary
+    
+    def _get_large_diff_summary(self, lines: list, file_path: str) -> str:
+        """Provide a summary for large diffs."""
+        # Count changes
+        additions = [line for line in lines if line.startswith('+') and not line.startswith('+++')]
+        deletions = [line for line in lines if line.startswith('-') and not line.startswith('---')]
+        
+        # Extract key structural changes
+        key_changes = []
+        for line in lines:
+            line = line.strip()
+            if line.startswith('+') and ('def ' in line or 'class ' in line):
+                key_changes.append(f"Added: {line[1:].strip()}")
+            elif line.startswith('-') and ('def ' in line or 'class ' in line):
+                key_changes.append(f"Removed: {line[1:].strip()}")
+        
+        summary = f"**LARGE REFACTORING DETECTED**\n\n"
+        summary += f"File: {file_path}\n"
+        summary += f"Total lines: {len(lines)}\n"
+        summary += f"Additions: {len(additions)} lines\n"
+        summary += f"Deletions: {len(deletions)} lines\n\n"
+        
+        if key_changes:
+            summary += "**Key Structural Changes:**\n"
+            summary += "\n".join(key_changes[:8]) + "\n"  # Limit to 8 changes
+            if len(key_changes) > 8:
+                summary += f"... and {len(key_changes) - 8} more changes\n"
+        
+        summary += "\n**Focus:** Analyze the overall purpose and architectural improvements of this refactoring."
+        
+        return summary
+    
+    def _get_normal_diff_content(self, diff_content: str) -> str:
+        """Provide normal diff content for small files."""
+        return f"```diff\n{diff_content}\n```"
+    
+    def _get_detailed_changes_analysis(self, changes: List[FileChange], max_files: int = 3) -> str:
+        """Get detailed technical analysis of what actually changed in the code."""
+        result = []
+        
+        for i, change in enumerate(changes[:max_files]):
+            change_desc = self._get_change_description(change.change_type)
+            
+            # Get focused diff for this file
+            key_diff = self._get_focused_diff(change.diff_content, max_lines=15)
+            
+            # Analyze what actually changed technically
+            technical_summary = self._analyze_technical_change(change)
+            
+            result.append(f"""**{change.file_path}** ({change_desc}):
+{technical_summary}
+```diff
+{key_diff}
+```""")
+        
+        if len(changes) > max_files:
+            result.append(f"\n... and {len(changes) - max_files} more files with related changes")
+        
+        return '\n\n'.join(result)
+    
+    def _analyze_technical_change(self, change: FileChange) -> str:
+        """Analyze what technically changed in a file based on diff content."""
+        if not change.diff_content:
+            return "No diff content available"
+        
+        lines = change.diff_content.split('\n')
+        added_functionality = []
+        removed_functionality = []
+        
+        # Look for significant additions
+        for line in lines:
+            if line.startswith('+') and not line.startswith('+++'):
+                line_content = line[1:].strip()
+                if len(line_content) > 5:  # Skip trivial additions
+                    # Look for function definitions, class additions, etc.
+                    if line_content.startswith(('def ', 'class ', 'async def ')):
+                        func_name = line_content.split('(')[0].replace('def ', '').replace('class ', '').replace('async ', '')
+                        added_functionality.append(f"Added method/class: {func_name}")
+                    elif 'if ' in line_content and ('export PATH' in line_content or 'path_override' in line_content):
+                        added_functionality.append("Added PATH override detection logic")
+                    elif 'insertion_point' in line_content or 'smart_path_insertion' in line_content:
+                        added_functionality.append("Added intelligent PATH insertion logic")
+                    elif 'few-shot' in line_content.lower() or 'examples' in line_content.lower():
+                        added_functionality.append("Added few-shot examples to prompts")
+                    elif 'await self._generate_traditional' in line_content:
+                        added_functionality.append("Added traditional commit message generation call")
+        
+        # Look for significant removals
+        for line in lines:
+            if line.startswith('-') and not line.startswith('---'):
+                line_content = line[1:].strip()
+                if len(line_content) > 5:
+                    if 'await self._generate_commit_message(repo_state)' in line_content:
+                        removed_functionality.append("Removed incorrect method call")
+                    elif line_content.startswith(('def ', 'class ')):
+                        func_name = line_content.split('(')[0].replace('def ', '').replace('class ', '')
+                        removed_functionality.append(f"Removed method/class: {func_name}")
+        
+        # Build technical summary
+        summary_parts = []
+        if added_functionality:
+            summary_parts.append(f"Added: {', '.join(added_functionality)}")
+        if removed_functionality:
+            summary_parts.append(f"Removed: {', '.join(removed_functionality)}")
+        
+        if not summary_parts:
+            # Fallback to simpler analysis
+            return f"Modified {change.file_path} with {change.lines_added} additions and {change.lines_removed} deletions"
+        
+        return '; '.join(summary_parts)
+    
+    def _get_change_description(self, change_type: str) -> str:
+        """Get human-readable description of change type."""
+        descriptions = {
+            'A': "Added",
+            'D': "Deleted", 
+            'M': "Modified",
+            'R': "Renamed",
+            'C': "Copied"
+        }
+        return descriptions.get(change_type, "Changed")
+    
+    def _analyze_changes(self, changes: List[FileChange]) -> str:
+        """Analyze changes to understand the overall pattern."""
         if not changes:
             return "No changes"
         
-        summary_parts = []
+        # Count by type
+        type_counts = {}
+        for change in changes:
+            type_counts[change.change_type] = type_counts.get(change.change_type, 0) + 1
         
-        # Group by change type
-        deletions = [c for c in changes if c.change_type == 'D']
-        additions = [c for c in changes if c.change_type == 'A']
-        modifications = [c for c in changes if c.change_type == 'M']
+        # Build summary
+        summary_parts = [f"Total files: {len(changes)}"]
         
-        if deletions:
-            summary_parts.append(f"DELETED ({len(deletions)}):")
-            for d in deletions:
-                purpose = self._analyze_file_purpose(d)
-                if purpose:
-                    summary_parts.append(f"  - {d.file_path} ({purpose})")
-                else:
-                    summary_parts.append(f"  - {d.file_path}")
+        for change_type, count in type_counts.items():
+            desc = self._get_change_description(change_type)
+            summary_parts.append(f"{desc}: {count}")
         
-        if additions:
-            summary_parts.append(f"ADDED ({len(additions)}):")
-            for a in additions:
-                purpose = self._analyze_file_purpose(a)
-                if purpose:
-                    summary_parts.append(f"  - {a.file_path} ({purpose})")
-                else:
-                    summary_parts.append(f"  - {a.file_path}")
+        # Detect patterns
+        patterns = []
+        if any(c.file_path.endswith('.sh') and c.change_type == 'D' for c in changes):
+            patterns.append("bash-to-python migration")
+        if any('deprecated' in c.file_path for c in changes):
+            patterns.append("file organization")
+        if type_counts.get('M', 0) > type_counts.get('A', 0) + type_counts.get('D', 0):
+            patterns.append("enhancement/fixes")
         
-        if modifications:
-            summary_parts.append(f"MODIFIED ({len(modifications)}):")
-            for m in modifications:
-                purpose = self._analyze_file_purpose(m)
-                if purpose:
-                    summary_parts.append(f"  - {m.file_path} ({purpose})")
-                else:
-                    summary_parts.append(f"  - {m.file_path}")
+        if patterns:
+            summary_parts.append(f"Patterns: {', '.join(patterns)}")
         
-        return "\n".join(summary_parts)
+        return ' | '.join(summary_parts)
+    
+    def _get_key_changes(self, changes: List[FileChange], max_files: int = 5) -> str:
+        """Get key changes for multi-file analysis."""
+        result = []
+        
+        for i, change in enumerate(changes[:max_files]):
+            change_desc = self._get_change_description(change.change_type)
+            
+            # Get a brief description of what changed
+            purpose = self._infer_change_purpose(change)
+            if purpose:
+                result.append(f"- {change_desc}: {change.file_path} ({purpose})")
+            else:
+                result.append(f"- {change_desc}: {change.file_path}")
+        
+        if len(changes) > max_files:
+            result.append(f"- ... and {len(changes) - max_files} more files")
+        
+        return '\n'.join(result)
+    
+    def _infer_change_purpose(self, change: FileChange) -> Optional[str]:
+        """Infer the purpose of a file change from context."""
+        file_path = change.file_path
+        change_type = change.change_type
+        
+        # File-specific inferences
+        if 'install' in file_path and change_type == 'M':
+            return "PATH configuration enhancement"
+        elif 'core.py' in file_path and change_type == 'M':
+            return "core functionality improvement"
+        elif file_path.endswith('.sh') and change_type == 'D':
+            return "legacy script removal"
+        elif 'deprecated' in file_path and change_type == 'A':
+            return "archival directory creation"
+        elif 'test' in file_path:
+            return "testing enhancement"
+        elif 'ai_backends' in file_path:
+            return "AI backend improvement"
+        elif 'git_ops' in file_path:
+            return "git operations enhancement"
+        
+        return None
+    
+    def _determine_primary_scope(self, changes: List[FileChange]) -> str:
+        """Determine the primary scope for multi-file changes."""
+        scope_counts = {}
+        
+        for change in changes:
+            scope = self._extract_scope(change.file_path)
+            scope_counts[scope] = scope_counts.get(scope, 0) + 1
+        
+        # Return the most common scope
+        if scope_counts:
+            return max(scope_counts.items(), key=lambda x: x[1])[0]
+        
+        return "smart_commit"
     
     def _determine_primary_type(self, changes: List[FileChange]) -> str:
-        """Determine the primary commit type for multiple changes."""
-        # Analyze patterns to determine primary type
-        deletions = [c for c in changes if c.change_type == 'D']
-        additions = [c for c in changes if c.change_type == 'A']
-        modifications = [c for c in changes if c.change_type == 'M']
+        """Determine the primary commit type for multi-file changes."""
+        # Count change types
+        deletions = sum(1 for c in changes if c.change_type == 'D')
+        additions = sum(1 for c in changes if c.change_type == 'A')
+        modifications = sum(1 for c in changes if c.change_type == 'M')
         
-        # Migration pattern
-        if deletions and any(c.file_path.endswith('.sh') for c in deletions):
-            return "chore"
+        # Pattern-based type detection
+        if deletions > 0 and any(c.file_path.endswith('.sh') for c in changes if c.change_type == 'D'):
+            return "chore"  # Cleanup/migration
         
-        # New feature pattern
-        if additions and not deletions:
-            return "feat"
+        if modifications > deletions + additions:
+            # Check if these look like fixes or features
+            if any('fix' in c.file_path.lower() or 'error' in c.file_path.lower() for c in changes):
+                return "fix"
+            else:
+                return "feat"  # Assume improvements are features
         
-        # Bug fix pattern
-        if modifications and any('fix' in c.file_path.lower() for c in modifications):
-            return "fix"
+        if additions > 0 and deletions == 0:
+            return "feat"  # Pure additions are likely features
         
-        # Mixed changes - default to refactor
-        if modifications and (deletions or additions):
-            return "refactor"
+        if deletions > additions:
+            return "chore"  # More deletions suggest cleanup
         
-        # Default based on majority
-        if len(modifications) > len(deletions) + len(additions):
-            return "feat"
-        elif len(deletions) > 0:
-            return "chore"
-        else:
-            return "feat"
-    
-    def _get_type_rationale(self, commit_type: str, changes: List[FileChange]) -> str:
-        """Get rationale for the recommended commit type."""
-        rationales = {
-            "chore": "Maintenance tasks, dependency updates, or cleanup without affecting production code",
-            "feat": "New features or functionality added to the codebase", 
-            "fix": "Bug fixes or corrections to existing functionality",
-            "refactor": "Code improvements that don't change external behavior",
-            "docs": "Documentation changes",
-            "test": "Adding or updating tests"
-        }
-        
-        base_rationale = rationales.get(commit_type, "General code changes")
-        
-        # Add specific rationale based on changes
-        if commit_type == "chore" and any(c.file_path.endswith('.sh') for c in changes if c.change_type == 'D'):
-            return f"{base_rationale}\nSpecific: Removing deprecated bash files during Python migration"
-        
-        return base_rationale
+        return "feat"  # Default to feature
