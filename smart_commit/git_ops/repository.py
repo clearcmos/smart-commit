@@ -195,17 +195,41 @@ class GitRepository:
     def _get_diff_content(self, diff, max_lines: int) -> str:
         """Extract and limit diff content."""
         try:
-            if diff.a_blob and diff.b_blob:
-                diff_text = diff.a_blob.data_stream.read().decode('utf-8', errors='ignore')
-                lines = diff_text.split('\n')
+            file_path = diff.a_path or diff.b_path
+            if not file_path:
+                return ""
+            
+            # Get the actual git diff output
+            if diff.change_type == "M":  # Modified
+                # For modified files, get the diff between working tree and index
+                diff_output = self.repo.git.diff("--no-index", "--no-ext-diff", "--unified=3", file_path)
+            elif diff.change_type == "A":  # Added
+                # For added files, show the file content
+                try:
+                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                        content = f.read()
+                        lines = content.split("\n")
+                        if len(lines) > max_lines:
+                            lines = lines[:max_lines] + [f"... (truncated, {len(lines) - max_lines} more lines)"]
+                        return "\n".join(lines)
+                except Exception:
+                    return f"Added file: {file_path}"
+            elif diff.change_type == "D":  # Deleted
+                return f"Deleted file: {file_path}"
+            else:
+                return f"Changed file: {file_path}"
+            
+            # Process diff output
+            if diff_output:
+                lines = diff_output.split("\n")
                 if len(lines) > max_lines:
                     lines = lines[:max_lines] + [f"... (truncated, {len(lines) - max_lines} more lines)"]
-                return '\n'.join(lines)
+                return "\n".join(lines)
+            else:
+                return f"No diff output for {file_path}"
         except Exception as e:
             logger.debug(f"Failed to get diff content for {diff.a_path}: {e}")
-        
-        return ""
-    
+            return f"Error getting diff: {e}"    
     def stage_files(self, file_paths: Optional[List[str]] = None) -> None:
         """Stage files for commit."""
         try:

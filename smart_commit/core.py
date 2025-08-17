@@ -3,6 +3,7 @@ Core Smart Commit engine that orchestrates all components.
 """
 
 import asyncio
+import time
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 from loguru import logger
@@ -210,92 +211,174 @@ class SmartCommit:
             if self.settings.git.auto_push:
                 await self._push_commits()
     
-    async def _generate_commit_message(self, repo_state: RepositoryState) -> Optional[str]:
-        """Generate commit message for repository state."""
-        with self.console.show_progress_spinner("Generating commit message"):
-            try:
-                # Get recent commits for context
-                recent_commits = self.git_repo.get_recent_commits(3)
-                
-                # Build prompt
-                prompt = self.prompt_builder.build_commit_prompt(
-                    repo_state=repo_state,
-                    recent_commits=recent_commits
-                )
-                
-                # Call AI backend
-                response = await self.ai_backend.call_with_retry(
-                    prompt, 
-                    max_retries=self.settings.ai.max_retries
-                )
-                
-                # Extract commit message
-                commit_message = message_extractor.extract_commit_message(response.content)
-                
-                if commit_message:
-                    logger.info(f"Generated commit message: {commit_message}")
-                    return commit_message
-                else:
-                    logger.warning("Failed to extract commit message from AI response")
-                    return None
-                    
-            except Exception as e:
-                logger.error(f"Failed to generate commit message: {e}")
-                return None
+    async def _generate_commit_message(self, file_change: FileChange) -> str:
+        """Generate a commit message for a single file change."""
+        from smart_commit.utils.message_extractor import MessageExtractor
+        
+        # Create message extractor instance
+        message_extractor = MessageExtractor()
+        
+        # Generate message for this specific file
+        prompt = self.prompt_builder.build_commit_prompt(
+            repo_state=None,  # Not needed for single file
+            file_context=file_change
+        )
+        
+        logger.debug(f"Generating commit message for {file_change.file_path}")
+        
+        response = await self.ai_backend.call_with_retry(
+            prompt,
+            max_retries=self.settings.ai.max_retries
+        )
+        
+        commit_message = message_extractor.extract_commit_message(response.content)
+        
+        if commit_message:
+            logger.debug(f"Generated message for {file_change.file_path}: {commit_message}")
+            return commit_message
+        else:
+            logger.warning(f"Failed to extract commit message for {file_change.file_path}")
+            raise ValueError("Failed to extract commit message")
     
-    async def _generate_atomic_commit_messages(self, files: List[FileChange]) -> List[Dict[str, str]]:
-        """Generate commit messages for each file in atomic mode."""
-        proposed_commits = []
+    async def _generate_atomic_commit_messages(self, file_changes: List[FileChange]) -> List[Dict[str, str]]:
+        """Generate commit messages for each file change."""
+        commit_messages = []
+        total_start_time = time.time()
         
-        with self.console.show_progress_bar(len(files), "Generating commit messages") as progress:
-            task = progress.add_task("Processing files...", total=len(files))
+        self.console.console.print(f"\n[bold blue]Generating commit messages for {len(file_changes)} files...[/bold blue]")
+        
+        for i, file_change in enumerate(file_changes, 1):
+            file_start_time = time.time()
+            self.console.console.print(f"\n[cyan]Processing file {i}/{len(file_changes)}:[/cyan] {file_change.file_path}")
             
-            for file_change in files:
-                try:
-                    # Generate message for this specific file
-                    prompt = self.prompt_builder.build_commit_prompt(
-                        repo_state=None,  # Not needed for single file
-                        file_context=file_change
-                    )
-                    
-                    response = await self.ai_backend.call_with_retry(
-                        prompt,
-                        max_retries=self.settings.ai.max_retries
-                    )
-                    
-                    commit_message = message_extractor.extract_commit_message(response.content)
-                    
-                    if commit_message:
-                        proposed_commits.append({
-                            "file_path": file_change.file_path,
-                            "message": commit_message,
-                            "change_type": file_change.change_type
-                        })
-                        logger.debug(f"Generated message for {file_change.file_path}: {commit_message}")
-                    else:
-                        logger.warning(f"Failed to generate message for {file_change.file_path}")
-                        # Add fallback message
-                        fallback_msg = f"{file_change.change_type.lower()}: update {file_change.file_path}"
-                        proposed_commits.append({
-                            "file_path": file_change.file_path,
-                            "message": fallback_msg,
-                            "change_type": file_change.change_type
-                        })
-                    
-                except Exception as e:
-                    logger.error(f"Failed to generate message for {file_change.file_path}: {e}")
-                    # Add error fallback
-                    fallback_msg = f"update: {file_change.file_path}"
-                    proposed_commits.append({
-                        "file_path": file_change.file_path,
-                        "message": fallback_msg,
-                        "change_type": file_change.change_type
-                    })
+            try:
+                # Time the AI call specifically
+                ai_start_time = time.time()
+                message = await self._generate_commit_message(file_change)
+                ai_duration = time.time() - ai_start_time
                 
-                progress.advance(task)
-                await asyncio.sleep(0.1)  # Brief pause for responsiveness
+                file_duration = time.time() - file_start_time
+                total_duration = time.time() - total_start_time
+                
+                self.console.console.print(f"  ✅ Generated in {ai_duration:.2f}s (file: {file_duration:.2f}s, total: {total_duration:.2f}s)")
+                
+                commit_messages.append({
+                    "file_path": file_change.file_path,
+                    "message": message,
+                    "ai_time": ai_duration,
+                    "total_time": file_duration
+                })
+                
+            except Exception as e:
+                file_duration = time.time() - file_start_time
+                total_duration = time.time() - total_start_time
+                
+                self.console.console.print(f"  ❌ Failed in {file_duration:.2f}s (file: {file_duration:.2f}s, total: {total_duration:.2f}s)")
+                logger.debug(f"Failed to generate message for {file_change.file_path}: {e}")
+                
+                # Generate intelligent fallback
+                fallback_message = self._generate_intelligent_fallback(file_change)
+                commit_messages.append({
+                    "file_path": file_change.file_path,
+                    "message": fallback_message,
+                    "ai_time": 0,
+                    "total_time": file_duration
+                })
         
-        return proposed_commits
+        total_duration = time.time() - total_start_time
+        self.console.console.print(f"\n[bold green]✅ All commit messages generated in {total_duration:.2f}s total[/bold green]")
+        
+        return commit_messages
+    
+    def _generate_intelligent_fallback(self, file_change: FileChange) -> str:
+        """Generate an intelligent fallback commit message based on file context."""
+        file_path = file_change.file_path
+        change_type = file_change.change_type
+        
+        # Use the PromptBuilder to get the proper scope
+        scope = self.prompt_builder._analyze_scope(file_path)
+        
+        # Analyze the file path to determine appropriate commit type and scope
+        if 'install' in file_path.lower():
+            if change_type == 'M':
+                return f"fix({scope or 'install'}): update installation configuration"
+            elif change_type == 'A':
+                return f"feat({scope or 'install'}): add new installation feature"
+            elif change_type == 'D':
+                return f"chore({scope or 'install'}): remove deprecated installation code"
+        
+        elif 'llamacpp' in file_path.lower():
+            if change_type == 'M':
+                return f"fix({scope or 'ai'}): resolve llamacpp backend issues"
+            elif change_type == 'A':
+                return f"feat({scope or 'ai'}): add new llamacpp functionality"
+        
+        elif 'prompts' in file_path.lower():
+            if change_type == 'M':
+                return f"refactor({scope or 'utils'}): improve prompt generation logic"
+            elif change_type == 'A':
+                return f"feat({scope or 'utils'}): add new prompt templates"
+        
+        elif 'message_extractor' in file_path.lower():
+            if change_type == 'M':
+                return f"fix({scope or 'utils'}): resolve message extraction issues"
+            elif change_type == 'A':
+                return f"feat({scope or 'utils'}): add new message extraction features"
+        
+        elif 'base.py' in file_path.lower():
+            if change_type == 'M':
+                return f"fix({scope or 'ai'}): improve backend base functionality"
+            elif change_type == 'A':
+                return f"feat({scope or 'ai'}): add new backend features"
+        
+        elif 'cli.py' in file_path.lower():
+            if change_type == 'M':
+                return f"fix({scope or 'core'}): improve command-line interface"
+            elif change_type == 'A':
+                return f"feat({scope or 'core'}): add new CLI options"
+        
+        elif 'core.py' in file_path.lower():
+            if change_type == 'M':
+                return f"fix({scope or 'core'}): improve core application logic"
+            elif change_type == 'A':
+                return f"feat({scope or 'core'}): add new core functionality"
+        
+        elif 'repository.py' in file_path.lower():
+            if change_type == 'M':
+                return f"fix({scope or 'git'}): improve git operations handling"
+            elif change_type == 'A':
+                return f"feat({scope or 'git'}): add new git operation features"
+        
+        elif 'console.py' in file_path.lower():
+            if change_type == 'M':
+                return f"fix({scope or 'ui'}): improve console output handling"
+            elif change_type == 'A':
+                return f"feat({scope or 'ui'}): add new console features"
+        
+        elif 'settings.py' in file_path.lower():
+            if change_type == 'M':
+                return f"fix({scope or 'config'}): update configuration settings"
+            elif change_type == 'A':
+                return f"feat({scope or 'config'}): add new configuration options"
+        
+        # Generic fallback based on change type with proper scope
+        if change_type == 'M':
+            # Remove file extension for cleaner scope
+            filename = file_path.split('/')[-1]
+            clean_filename = filename.replace('.py', '').replace('.sh', '').replace('.md', '')
+            return f"fix({scope or 'smart_commit'}): update {clean_filename}"
+        elif change_type == 'A':
+            filename = file_path.split('/')[-1]
+            clean_filename = filename.replace('.py', '').replace('.sh', '').replace('.md', '')
+            return f"feat({scope or 'smart_commit'}): add {clean_filename}"
+        elif change_type == 'D':
+            filename = file_path.split('/')[-1]
+            clean_filename = filename.replace('.py', '').replace('.sh', '').replace('.md', '')
+            return f"chore({scope or 'smart_commit'}): remove {clean_filename}"
+        else:
+            filename = file_path.split('/')[-1]
+            clean_filename = filename.replace('.py', '').replace('.sh', '').replace('.md', '')
+            return f"update({scope or 'smart_commit'}): {clean_filename}"
     
     async def _handle_atomic_commits_approval(self, proposed_commits: List[Dict[str, str]]) -> Optional[List[Dict[str, str]]]:
         """Handle user approval and editing of atomic commits."""

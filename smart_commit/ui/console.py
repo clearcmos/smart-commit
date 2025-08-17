@@ -182,15 +182,45 @@ class SmartCommitConsole:
         
         table = Table(box=box.SIMPLE_HEAD)
         table.add_column("#", style="bold cyan", width=4)
-        table.add_column("File", style="bold")
-        table.add_column("Commit Message", style="green")
+        table.add_column("File", style="bold", width=40)
+        table.add_column("Commit Message", style="green", width=120, no_wrap=True)  # Increased width to 120
         
         for i, commit in enumerate(commits, 1):
-            table.add_row(
-                str(i),
-                commit["file_path"],
-                commit["message"]
-            )
+            # Handle long commit messages by wrapping them properly
+            message = commit["message"]
+            if len(message) > 110:  # Increased from 75 to 110 for better display
+                # Split long messages at word boundaries
+                words = message.split()
+                lines = []
+                current_line = ""
+                
+                for word in words:
+                    if len(current_line + " " + word) <= 110:  # Increased from 75 to 110
+                        current_line += (" " + word) if current_line else word
+                    else:
+                        if current_line:
+                            lines.append(current_line)
+                        current_line = word
+                
+                if current_line:
+                    lines.append(current_line)
+                
+                # First row with file path
+                table.add_row(
+                    str(i),
+                    commit["file_path"],
+                    lines[0] if lines else message
+                )
+                
+                # Additional rows for long messages
+                for line in lines[1:]:
+                    table.add_row("", "", line)
+            else:
+                table.add_row(
+                    str(i),
+                    commit["file_path"],
+                    message
+                )
         
         self.console.print(table)
         self.console.print()

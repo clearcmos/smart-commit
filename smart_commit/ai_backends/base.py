@@ -9,6 +9,11 @@ import time
 from loguru import logger
 
 
+class ValidationError(ValueError):
+    """Custom exception for validation failures that should not be retried."""
+    pass
+
+
 @dataclass
 class AIResponse:
     """Structured AI response data."""
@@ -75,19 +80,32 @@ class AIBackend(ABC):
                 response = await self.call_api(prompt)
                 response.response_time = time.time() - start_time
                 
+                # Validate response quality
+                if not response.content or len(response.content.strip()) < 10:
+                    raise ValueError(f"Response too short or empty: '{response.content}'")
+                
                 self._log_response(response)
                 return response
                 
+            except ValidationError as e:
+                # Validation errors should not be retried
+                logger.debug(f"Validation error, not retrying: {e}")
+                raise
             except Exception as e:
                 last_exception = e
-                logger.warning(f"AI API attempt {attempt + 1} failed: {e}")
+                logger.debug(f"AI API attempt {attempt + 1} failed: {e}")
+                
+                # Don't retry on validation errors that won't be fixed by retrying
+                if "Response too short" in str(e) or "Response validation failed" in str(e):
+                    logger.debug(f"Validation error, not retrying: {e}")
+                    break
                 
                 if attempt < max_retries - 1:
                     wait_time = 2 ** attempt  # Exponential backoff
                     logger.debug(f"Retrying in {wait_time} seconds...")
                     await asyncio.sleep(wait_time)
         
-        logger.error(f"All {max_retries} AI API attempts failed")
+        logger.debug(f"All {max_retries} AI API attempts failed")
         raise last_exception
 
 

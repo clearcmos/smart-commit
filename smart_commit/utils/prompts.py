@@ -10,9 +10,9 @@ from ..git_ops.repository import FileChange, RepositoryState
 class PromptBuilder:
     """Build optimized prompts for different scenarios."""
     
-    def __init__(self, character_limit: int = 72, optimized_mode: bool = False):
+    def __init__(self, character_limit: int = 150, optimized_mode: bool = False):  # Increased from 72 to 150
         """Initialize prompt builder with conventional commit standards."""
-        self.character_limit = character_limit  # Conventional commit standard
+        self.character_limit = character_limit  # Increased limit for more descriptive messages
         self.optimized_mode = optimized_mode
     
     def build_commit_prompt(
@@ -59,16 +59,14 @@ class PromptBuilder:
         
         # Very specific handling for known files
         if file_path == 'setup':
-            return """Generate a conventional commit message for this file deletion:
-
-FILE: setup (DELETED)
-CONTEXT: This was a bash setup script being removed as part of migration from bash to Python implementation.
+            return """FILE: setup (DELETED)
+CONTEXT: Bash setup script removed during migration from bash to Python implementation.
 
 REQUIREMENTS:
 - Format: type(scope): description  
-- Max 72 characters
+- Max {self.character_limit} characters
 - Use imperative mood
-- Type should be "chore" (maintenance/cleanup)
+- Type: "chore" (maintenance/cleanup)
 - Be specific about bash migration
 
 EXAMPLES:
@@ -78,16 +76,14 @@ EXAMPLES:
 COMMIT MESSAGE:"""
         
         elif file_path == 'smart-commit.sh':
-            return """Generate a conventional commit message for this file deletion:
-
-FILE: smart-commit.sh (DELETED)  
-CONTEXT: This was the main bash implementation being removed and replaced by Python implementation.
+            return """FILE: smart-commit.sh (DELETED)  
+CONTEXT: Main bash implementation removed and replaced by Python implementation.
 
 REQUIREMENTS:
 - Format: type(scope): description
-- Max 72 characters  
+- Max {self.character_limit} characters  
 - Use imperative mood
-- Type should be "chore" (maintenance/cleanup)
+- Type: "chore" (maintenance/cleanup)
 - Be specific about bash-to-python migration
 
 EXAMPLES:
@@ -97,16 +93,14 @@ EXAMPLES:
 COMMIT MESSAGE:"""
         
         elif file_path.endswith('.sh'):
-            return f"""Generate a conventional commit message for this file deletion:
-
-FILE: {file_path} (DELETED)
-CONTEXT: Shell script being removed as part of codebase migration.
+            return f"""FILE: {file_path} (DELETED)
+CONTEXT: Shell script removed as part of codebase migration.
 
 REQUIREMENTS:
 - Format: type(scope): description
-- Max 72 characters
+- Max {self.character_limit} characters
 - Use imperative mood  
-- Type should be "chore" 
+- Type: "chore" 
 
 EXAMPLES:
 - chore: remove deprecated shell script
@@ -115,15 +109,13 @@ EXAMPLES:
 COMMIT MESSAGE:"""
         
         else:
-            return f"""Generate a conventional commit message for this file deletion:
-
-FILE: {file_path} (DELETED)
+            return f"""FILE: {file_path} (DELETED)
 
 REQUIREMENTS:
 - Format: type(scope): description
-- Max 72 characters
+- Max {self.character_limit} characters
 - Use imperative mood
-- Type should be "chore" or "refactor"
+- Type: "chore" or "refactor"
 
 COMMIT MESSAGE:"""
     
@@ -132,15 +124,13 @@ COMMIT MESSAGE:"""
         file_path = file_context.file_path
         
         if 'deprecated' in file_path:
-            return f"""Generate a conventional commit message for this file addition:
-
-FILE: {file_path} (ADDED)
+            return f"""FILE: {file_path} (ADDED)
 CONTEXT: Creating directory for archiving deprecated files.
 
 REQUIREMENTS:
 - Format: type(scope): description
-- Max 72 characters
-- Type should be "chore"
+- Max {self.character_limit} characters
+- Type: "chore"
 
 EXAMPLES:
 - chore: create deprecated directory for old files
@@ -153,14 +143,12 @@ COMMIT MESSAGE:"""
             scope = self._analyze_scope(file_path)
             scope_text = f"(scope: {scope})" if scope else ""
             
-            return f"""Generate a conventional commit message for this file addition:
-
-FILE: {file_path} (ADDED)
+            return f"""FILE: {file_path} (ADDED)
 TYPE: {file_type} {scope_text}
 
 REQUIREMENTS:
 - Format: type(scope): description
-- Max 72 characters
+- Max {self.character_limit} characters
 - Use imperative mood
 - Type: "feat" for new features, "chore" for tooling, "test" for tests
 
@@ -173,59 +161,198 @@ COMMIT MESSAGE:"""
         scope = self._analyze_scope(file_path)
         
         # Specific handling for known files
-        if 'repository.py' in file_path:
-            return f"""Generate a conventional commit message for this file modification:
-
-FILE: {file_path} (MODIFIED)
-PURPOSE: {purpose or "Improving git operations handling"}
-SCOPE: {scope or "git"}
-
-REQUIREMENTS:
-- Format: type(scope): description
-- Max 72 characters
-- Type should be "fix" (if bug fix) or "feat" (if enhancement)
-
-EXAMPLES:
-- fix(git): handle deleted files in atomic commits
-- feat(git): add support for staged deletions
-
-COMMIT MESSAGE:"""
-        
-        elif 'prompts.py' in file_path:
-            return f"""Generate a conventional commit message for this file modification:
-
-FILE: {file_path} (MODIFIED)  
-PURPOSE: {purpose or "Enhancing AI prompt generation"}
-SCOPE: {scope or "ai"}
-
-REQUIREMENTS:
-- Format: type(scope): description
-- Max 72 characters
-- Type should be "feat" (enhancement) or "fix" (bug fix)
-
-EXAMPLES:
-- feat(ai): improve context analysis for commit messages
-- fix(ai): enhance prompt generation for deleted files
-
-COMMIT MESSAGE:"""
-        
-        else:
+        if 'install.py' in file_path:
             diff_preview = self._get_intelligent_diff(file_context)[:200] + "..." if file_context.diff_content else "No diff available"
-            
-            return f"""Generate a conventional commit message for this file modification:
+            return f"""SCOPE: {scope or "install"} (MANDATORY - use this exact scope)
 
 FILE: {file_path} (MODIFIED)
-SCOPE: {scope or "core"}
 
 DIFF PREVIEW:
 {diff_preview}
 
 REQUIREMENTS:
-- Format: type(scope): description
-- Max 72 characters
+- Format: type({scope or "install"}): description
+- Max {self.character_limit} characters
 - Use imperative mood
+- Be specific about what was changed in the installation script
+- SCOPE MUST BE: {scope or "install"} (NOT the full file path)
+
+EXAMPLES:
+- fix({scope or "install"}): update installation configuration
+- feat({scope or "install"}): add new installation option
+
+COMMIT MESSAGE:"""        
+        elif 'repository.py' in file_path:
+            diff_preview = self._get_intelligent_diff(file_context)[:200] + "..." if file_context.diff_content else "No diff available"
+            return f"""SCOPE: {scope or "git"} (MANDATORY - use this exact scope)
+
+FILE: {file_path} (MODIFIED)
+
+DIFF PREVIEW:
+{diff_preview}
+
+REQUIREMENTS:
+- Format: type({scope or "git"}): description
+- Max {self.character_limit} characters
+- Use imperative mood
+- Be specific about what was changed in git operations
+- SCOPE MUST BE: {scope or "git"} (NOT the full file path)
+
+EXAMPLES:
+- fix({scope or "git"}): improve rename detection
+- feat({scope or "git"}): add copy detection support
+
+COMMIT MESSAGE:"""        
+        elif 'prompts.py' in file_path:
+            diff_preview = self._get_intelligent_diff(file_context)[:200] + "..." if file_context.diff_content else "No diff available"
+            return f"""SCOPE: {scope or "utils"} (MANDATORY - use this exact scope)
+
+FILE: {file_path} (MODIFIED)
+
+DIFF PREVIEW:
+{diff_preview}
+
+REQUIREMENTS:
+- Format: type({scope or "utils"}): description
+- Max {self.character_limit} characters
+- Use imperative mood
+- Be specific about what was changed in prompt generation
+- SCOPE MUST BE: {scope or "utils"} (NOT the full file path)
+
+EXAMPLES:
+- fix({scope or "utils"}): improve prompt generation
+- feat({scope or "utils"}): add new prompt templates
+
+COMMIT MESSAGE:"""        
+        elif 'message_extractor.py' in file_path:
+            diff_preview = self._get_intelligent_diff(file_context)[:200] + "..." if file_context.diff_content else "No diff available"
+            return f"""SCOPE: {scope or "utils"} (MANDATORY - use this exact scope)
+
+FILE: {file_path} (MODIFIED)
+
+DIFF PREVIEW:
+{diff_preview}
+
+REQUIREMENTS:
+- Format: type({scope or "utils"}): description
+- Max {self.character_limit} characters
+- Use imperative mood
+- Be specific about what was changed in message extraction
+- SCOPE MUST BE: {scope or "utils"} (NOT the full file path)
+
+EXAMPLES:
+- fix({scope or "utils"}): improve message extraction
+- feat({scope or "utils"}): add new extraction features
+
+COMMIT MESSAGE:"""        
+        elif 'base.py' in file_path:
+            diff_preview = self._get_intelligent_diff(file_context)[:200] + "..." if file_context.diff_content else "No diff available"
+            return f"""SCOPE: {scope or "ai"} (MANDATORY - use this exact scope)
+
+FILE: {file_path} (MODIFIED)
+
+DIFF PREVIEW:
+{diff_preview}
+
+REQUIREMENTS:
+- Format: type({scope or "ai"}): description
+- Max {self.character_limit} characters
+- Use imperative mood
+- Be specific about what was changed in the base backend
+- SCOPE MUST BE: {scope or "ai"} (NOT the full file path)
+
+EXAMPLES:
+- fix({scope or "ai"}): improve backend functionality
+- feat({scope or "ai"}): add new backend features
+
+COMMIT MESSAGE:"""        
+        elif 'cli.py' in file_path:
+            diff_preview = self._get_intelligent_diff(file_context)[:200] + "..." if file_context.diff_content else "No diff available"
+            return f"""SCOPE: {scope or "core"} (MANDATORY - use this exact scope)
+
+FILE: {file_path} (MODIFIED)
+
+DIFF PREVIEW:
+{diff_preview}
+
+REQUIREMENTS:
+- Format: type({scope or "core"}): description
+- Max {self.character_limit} characters
+- Use imperative mood
+- Be specific about what was changed in the CLI
+- SCOPE MUST BE: {scope or "core"} (NOT the full file path)
+
+EXAMPLES:
+- fix({scope or "core"}): improve CLI functionality
+- feat({scope or "core"}): add new CLI options
+
+COMMIT MESSAGE:"""        
+        elif 'core.py' in file_path:
+            diff_preview = self._get_intelligent_diff(file_context)[:200] + "..." if file_context.diff_content else "No diff available"
+            return f"""SCOPE: {scope or "core"} (MANDATORY - use this exact scope)
+
+FILE: {file_path} (MODIFIED)
+
+DIFF PREVIEW:
+{diff_preview}
+
+REQUIREMENTS:
+- Format: type({scope or "core"}): description
+- Max {self.character_limit} characters
+- Use imperative mood
+- Be specific about what was changed in the core logic
+- SCOPE MUST BE: {scope or "core"} (NOT the full file path)
+
+EXAMPLES:
+- fix({scope or "core"}): improve core functionality
+- feat({scope or "core"}): add new core features
+
+COMMIT MESSAGE:"""        
+        elif 'llamacpp.py' in file_path:
+            diff_preview = self._get_intelligent_diff(file_context)[:200] + "..." if file_context.diff_content else "No diff available"
+            return f"""SCOPE: {scope or "ai"} (MANDATORY - use this exact scope)
+
+FILE: {file_path} (MODIFIED)
+
+DIFF PREVIEW:
+{diff_preview}
+
+REQUIREMENTS:
+- Format: type({scope or "ai"}): description
+- Max {self.character_limit} characters
+- Use imperative mood
+- Be specific about what was changed in the llama.cpp backend
+- SCOPE MUST BE: {scope or "ai"} (NOT the full file path)
+
+EXAMPLES:
+- fix({scope or "ai"}): improve llama.cpp backend
+- feat({scope or "ai"}): add new backend features
+
+COMMIT MESSAGE:"""        
+        else:
+            diff_preview = self._get_intelligent_diff(file_context)[:200] + "..." if file_context.diff_content else "No diff available"
+            
+            return f"""SCOPE: {scope or "smart_commit"} (MANDATORY - use this exact scope)
+
+FILE: {file_path} (MODIFIED)
+
+DIFF PREVIEW:
+{diff_preview}
+
+REQUIREMENTS:
+- Format: type({scope or "smart_commit"}): description
+- Max {self.character_limit} characters
+- Use imperative mood
+- Scope MUST be "{scope or "smart_commit"}" (from file path)
+- SCOPE MUST BE: {scope or "smart_commit"} (NOT the full file path)
 - Be specific about the change
 
+EXAMPLES:
+- fix({scope or "smart_commit"}): resolve import error in core module
+- feat({scope or "smart_commit"}): add new configuration option
+- refactor({scope or "smart_commit"}): improve error handling
+
+OUTPUT: Generate ONLY a conventional commit message, nothing else.
 COMMIT MESSAGE:"""
     
     def _build_multi_file_prompt(self, changes: List[FileChange]) -> str:
@@ -237,9 +364,7 @@ COMMIT MESSAGE:"""
         prompt_sections = []
         
         # Header
-        prompt_sections.append("""You are an expert Git commit message generator. Generate ONE conventional commit message that summarizes all changes.
-
-REQUIREMENTS:
+        prompt_sections.append("""REQUIREMENTS:
 - Follow Conventional Commits 1.0.0 specification exactly
 - Format: type(scope): description
 - Maximum {char_limit} characters
@@ -326,7 +451,7 @@ REQUIREMENTS:
         return f"""## Instructions:
 1. Carefully analyze the code changes above
 2. Write ONE commit message in this exact format: type(scope): description
-3. Keep it under {self.character_limit} characters
+3. Keep it under {self.character_limit} characters (allows longer, more descriptive messages)
 4. Use present tense verbs
 5. Make the description SPECIFIC about what actually changed in the code
 6. CRITICAL: Follow the scope rules below exactly
@@ -520,9 +645,60 @@ Write ONLY the commit message, nothing else:"""
     def _analyze_scope(self, file_path: str) -> Optional[str]:
         """Analyze conventional commit scope from file path."""
         parts = file_path.split('/')
-        if len(parts) > 1:
-            # Use the most relevant part for scope
-            if parts[0] in ['src', 'lib', 'core', 'smart_commit']:
+        
+        # Handle root-level files first
+        if len(parts) == 1:
+            # Root-level files get specific scopes
+            root_file_scopes = {
+                'install.py': 'install',
+                'CLAUDE.md': 'docs',
+                'CLAUDE-v2.md': 'docs',
+                'README.md': 'docs',
+                'README-v2.md': 'docs',
+                'UPCOMING.md': 'docs',
+                'LICENSE': 'docs',
+                'pyproject.toml': 'build',
+                'setup.py': 'build',
+                'requirements.txt': 'build',
+                '.gitignore': 'config'
+            }
+            return root_file_scopes.get(file_path, 'smart_commit')
+        
+        # For smart_commit directory, use the subdirectory as scope
+        if len(parts) > 1 and parts[0] == 'smart_commit' and len(parts) > 1:
+            subdir = parts[1]
+            
+            # Map specific filenames to their appropriate scopes
+            filename_scope_mapping = {
+                'cli.py': 'core',
+                'core.py': 'core',
+                'base.py': 'ai',
+                'llamacpp.py': 'ai',
+                'repository.py': 'git',
+                'console.py': 'ui',
+                'message_extractor.py': 'utils',
+                'prompts.py': 'utils',
+                'settings.py': 'config'
+            }
+            
+            # Check if this is a specific filename that needs mapping
+            if subdir in filename_scope_mapping:
+                return filename_scope_mapping[subdir]
+            
+            # Map subdirectories to concise scopes
+            scope_mapping = {
+                'ai_backends': 'ai',
+                'git_ops': 'git', 
+                'ui': 'ui',
+                'utils': 'utils',
+                'config': 'config',
+                'core': 'core'
+            }
+            return scope_mapping.get(subdir, subdir)
+        
+        # Use the most relevant part for scope
+        elif len(parts) > 1:
+            if parts[0] in ['src', 'lib', 'core']:
                 return parts[0]
             elif parts[0] in ['test', 'tests']:
                 return 'test'
@@ -532,7 +708,8 @@ Write ONLY the commit message, nothing else:"""
                 return 'config'
             else:
                 return parts[0]
-        return None
+        
+        return 'smart_commit'  # Default fallback
     
     def _detect_patterns(self, file_context: FileChange) -> List[str]:
         """Detect common patterns in file changes."""
@@ -575,6 +752,16 @@ Write ONLY the commit message, nothing else:"""
             return "Improving git operations handling"
         elif 'prompts.py' in file_path and change_type == 'M':
             return "Enhancing AI prompt generation"
+        elif 'message_extractor.py' in file_path and change_type == 'M':
+            return "Improving commit message extraction logic"
+        elif 'base.py' in file_path and change_type == 'M':
+            return "Improving backend base functionality"
+        elif 'cli.py' in file_path and change_type == 'M':
+            return "Improving command-line interface"
+        elif 'core.py' in file_path and change_type == 'M':
+            return "Improving core application logic"
+        elif 'llamacpp.py' in file_path and change_type == 'M':
+            return "Improving llama.cpp backend functionality"
         elif 'deprecated' in file_path and change_type == 'A':
             return "Creating archive for deprecated files"
         

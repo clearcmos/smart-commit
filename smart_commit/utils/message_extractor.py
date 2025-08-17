@@ -16,7 +16,7 @@ class MessageExtractor:
         "test", "chore", "build", "ci", "perf", "revert"
     ]
     
-    def __init__(self, character_limit: int = 90):
+    def __init__(self, character_limit: int = 150):  # Increased from 90 to 150
         """Initialize message extractor."""
         self.character_limit = character_limit
         self._compile_patterns()
@@ -46,45 +46,71 @@ class MessageExtractor:
     def extract_commit_message(self, raw_response: str) -> Optional[str]:
         """Extract commit message using multiple strategies."""
         logger.debug(f"Extracting commit message from {len(raw_response)} char response")
+        logger.debug(f"Raw response content: '{raw_response}'")
         
         # Clean the response first
         cleaned_response = self._clean_response(raw_response)
+        logger.debug(f"Cleaned response: '{cleaned_response}' (length: {len(cleaned_response)})")
         
         if not cleaned_response:
             logger.warning("Empty response after cleaning")
             return None
         
-        # Strategy 1: Look for conventional commit with scope
+        # Strategy 1: Look for ChatML-specific patterns
+        message = self._extract_chatml_response(cleaned_response)
+        if message:
+            logger.debug(f"Extracted from ChatML: {message}")
+            return self._finalize_message(message)
+        
+        # Strategy 2: Look for conventional commit with scope
         message = self._extract_with_scope(cleaned_response)
         if message:
             logger.debug(f"Extracted with scope: {message}")
             return self._finalize_message(message)
         
-        # Strategy 2: Look for conventional commit without scope
+        # Strategy 3: Look for conventional commit without scope
         message = self._extract_without_scope(cleaned_response)
         if message:
             logger.debug(f"Extracted without scope: {message}")
             return self._finalize_message(message)
         
-        # Strategy 3: Look for any line with commit types
+        # Strategy 4: Look for any line with commit types
         message = self._extract_any_commit_line(cleaned_response)
         if message:
             logger.debug(f"Extracted any commit line: {message}")
             return self._finalize_message(message)
         
-        # Strategy 4: Intelligent fallback
+        # Strategy 5: Intelligent fallback
         message = self._intelligent_fallback(cleaned_response)
         if message:
             logger.debug(f"Used intelligent fallback: {message}")
             return self._finalize_message(message)
         
+        # Strategy 6: Ultra-lenient fallback - catch any reasonable commit-like message
+        message = self._ultra_lenient_fallback(cleaned_response)
+        if message:
+            logger.debug(f"Used ultra-lenient fallback: {message}")
+            return self._finalize_message(message)
+        
         logger.warning("Could not extract commit message from response")
+        logger.debug(f"Failed to extract from cleaned response: '{cleaned_response}'")
         return None
     
     def _clean_response(self, response: str) -> str:
         """Clean AI response by removing markdown and formatting."""
+        # Extract content from ChatML assistant response
+        # Look for content between <|im_start|>assistant and <|im_end|>
+        chatml_match = re.search(r'<\|im_start\|>assistant\s*(.*?)(?=<\|im_end\|>|$)', response, re.DOTALL)
+        if chatml_match:
+            cleaned = chatml_match.group(1).strip()
+        else:
+            # Fallback: remove ChatML tokens
+            cleaned = re.sub(r'<\|im_start\|>.*?<\|im_end\|>', '', response, flags=re.DOTALL)
+            cleaned = re.sub(r'<\|im_start\|>', '', cleaned)
+            cleaned = re.sub(r'<\|im_end\|>', '', cleaned)
+        
         # Remove markdown code blocks
-        cleaned = re.sub(r'```\w*\n?', '', response)
+        cleaned = re.sub(r'```\w*\n?', '', cleaned)
         cleaned = re.sub(r'```', '', cleaned)
         
         # Remove HTML tags
@@ -203,6 +229,35 @@ class MessageExtractor:
         else:
             return f"feat: {line[:-1]}"  # Remove trailing period
     
+    def _ultra_lenient_fallback(self, text: str) -> Optional[str]:
+        """Ultra-lenient fallback that catches any reasonable commit-like message."""
+        lines = text.split('\n')
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Look for any line that has a colon and looks like a commit message
+            if ':' in line and len(line) > 10 and len(line) < 200:
+                # Check if it starts with common commit types
+                commit_types = ['fix', 'feat', 'refactor', 'chore', 'docs', 'style', 'test', 'perf', 'build', 'ci', 'revert']
+                line_lower = line.lower()
+                
+                for commit_type in commit_types:
+                    if line_lower.startswith(commit_type):
+                        return line.strip()
+                
+                # If no commit type found, but it looks like a commit message, return it
+                if '(' in line and ')' in line and ':' in line:
+                    return line.strip()
+                
+                # Even more lenient: any line with colon that's not too long
+                if len(line) < 150:  # Allow longer messages
+                    return line.strip()
+        
+        return None
+    
     def _finalize_message(self, message: str) -> str:
         """Finalize message with length checks and cleanup."""
         # Remove quotes and backticks
@@ -248,6 +303,50 @@ class MessageExtractor:
             description = truncated + "..."
         
         return f"{prefix}: {description}"
+
+    def _extract_chatml_response(self, text: str) -> Optional[str]:
+        """Extract commit message from ChatML-formatted responses."""
+        # Look for the most likely commit message line
+        lines = text.split('\n')
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Skip lines that are clearly not commit messages
+            if any(skip in line.lower() for skip in ['<|im_start|>', '<|im_end|>', 'system:', 'user:', 'assistant:']):
+                continue
+            
+            # Check if this line looks like a commit message
+            if self._looks_like_commit_message(line):
+                return line
+        
+        return None
+    
+    def _looks_like_commit_message(self, line: str) -> bool:
+        """Check if a line looks like a conventional commit message."""
+        line_lower = line.lower()
+        
+        # Must contain a conventional commit type
+        has_type = any(t in line_lower for t in self.COMMIT_TYPES)
+        if not has_type:
+            return False
+        
+        # Must contain a colon (typical of commit messages)
+        if ':' not in line:
+            return False
+        
+        # Reasonable length
+        if len(line) < 10 or len(line) > 200:
+            return False
+        
+        # Not too many special characters
+        special_chars = len(re.findall(r'[^\w\s:(),-]', line))
+        if special_chars > 5:
+            return False
+        
+        return True
 
 
 # Create global instance

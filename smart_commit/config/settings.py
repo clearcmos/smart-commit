@@ -95,9 +95,9 @@ class PerformanceSettings(BaseModel):
         description="Enable macOS local optimization mode"
     )
     character_limit: int = Field(
-        default=90,
+        default=150,  # Increased from 90 to allow longer, more descriptive messages
         ge=50,
-        le=200,
+        le=300,       # Increased max limit to 300 characters
         description="Maximum commit message character limit"
     )
     

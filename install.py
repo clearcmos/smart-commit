@@ -686,6 +686,8 @@ class SmartCommitInstaller:
                     # Validate basic structure
                     if all(key in existing_config for key in ['ai', 'git', 'ui', 'performance']):
                         print("✅ Configuration already exists and is valid")
+                        # Still update environment variables if needed
+                        self._update_shell_environment(legacy_config)
                         return True
                     else:
                         print("🔄 Updating incomplete configuration...")
@@ -737,7 +739,82 @@ class SmartCommitInstaller:
             json.dump(config_data, f, indent=2)
         
         print(f"✅ Configuration saved to {config_file}")
+        
+        # Update shell environment variables
+        self._update_shell_environment(legacy_config)
+        
         return True
+    
+    def _update_shell_environment(self, config: Optional[Dict[str, Any]] = None) -> None:
+        """Update shell environment variables to match configuration."""
+        if not config:
+            return
+        
+        print("🔧 Updating shell environment variables...")
+        
+        # Detect shell and shell RC file
+        shell_name = os.environ.get('SHELL', '/bin/bash').split('/')[-1]
+        if shell_name == 'zsh' or 'zsh' in shell_name:
+            shell_rc = self.home_dir / ".zshrc"
+        else:
+            shell_rc = self.home_dir / ".bashrc"
+        
+        if not shell_rc.exists():
+            print(f"⚠️  Shell RC file {shell_rc} not found, skipping environment update")
+            return
+        
+        try:
+            # Read current shell RC content
+            with open(shell_rc, 'r') as f:
+                content = f.read()
+            
+            # Remove old environment variable exports
+            lines = content.split('\n')
+            filtered_lines = []
+            
+            for line in lines:
+                # Skip lines with old environment variables
+                if any(var in line for var in ['OLLAMA_API_URL', 'OLLAMA_MODEL', 'SMART_COMMIT_MACOS_LOCAL']):
+                    continue
+                # Skip lines with old AI environment variables
+                if any(var in line for var in ['AI_API_URL', 'AI_MODEL', 'AI_BACKEND_TYPE']):
+                    continue
+                filtered_lines.append(line)
+            
+            # Add new environment variable exports
+            new_exports = []
+            
+            # Add comment header
+            new_exports.append("")
+            new_exports.append("# Smart Commit v2.0 Environment Variables")
+            new_exports.append("# Auto-configured by installer")
+            
+            # Add new environment variables based on configuration
+            if 'ai_api_url' in config:
+                new_exports.append(f'export AI_API_URL="{config["ai_api_url"]}"')
+            if 'ai_model' in config:
+                new_exports.append(f'export AI_MODEL="{config["ai_model"]}"')
+            if 'ai_backend_type' in config:
+                new_exports.append(f'export AI_BACKEND_TYPE="{config["ai_backend_type"]}"')
+            if 'macos_local_mode' in config:
+                new_exports.append(f'export SMART_COMMIT_MACOS_LOCAL="{str(config["macos_local_mode"]).lower()}"')
+            
+            # Add footer comment
+            new_exports.append("")
+            
+            # Combine content
+            updated_content = '\n'.join(filtered_lines + new_exports)
+            
+            # Write updated content back to shell RC
+            with open(shell_rc, 'w') as f:
+                f.write(updated_content)
+            
+            print(f"✅ Updated environment variables in {shell_rc}")
+            print("   Note: You may need to restart your terminal or run 'source ~/.zshrc' for changes to take effect")
+            
+        except Exception as e:
+            print(f"⚠️  Failed to update shell environment: {e}")
+            print("   You may need to manually update your shell configuration")
     
     def create_shell_scripts(self) -> bool:
         """Create shell integration scripts."""
@@ -856,6 +933,11 @@ exec "{python_exe}" -m smart_commit.cli "$@"
         print()
         print("📚 Configuration file:")
         print(f"  {self.config_dir / 'config.json'}")
+        print()
+        print("🔧 Environment Variables:")
+        print("  ✅ Shell environment variables have been updated")
+        print("  📝 To apply changes immediately, run: source ~/.zshrc")
+        print("  🔄 Or restart your terminal for permanent changes")
         print()
         print("🔧 For help: smart-commit --help")
     

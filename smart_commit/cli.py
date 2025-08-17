@@ -71,6 +71,10 @@ def main_callback(
         False, "--verbose", "-v",
         help="Enable verbose logging"
     ),
+    debug: bool = typer.Option(
+        False, "--debug", "-d",
+        help="Enable debug logging (includes verbose)"
+    ),
     repo_path: Optional[Path] = typer.Option(
         None, "--repo", "-r",
         help="Git repository path (default: current directory)"
@@ -89,8 +93,12 @@ def main_callback(
     [green]smart-commit --dry-run[/green]                 # Preview without committing  
     [green]smart-commit --atomic[/green]                  # One commit per file
     [green]smart-commit --atomic --dry-run[/green]        # Preview atomic commits
+    [green]smart-commit --atomic --verbose[/green]        # Verbose logging
+    [green]smart-commit --atomic --debug[/green]          # Full debug logging
     [green]smart-commit config --show[/green]             # Show configuration
     [green]smart-commit test[/green]                      # Test AI backend
+    [green]smart-commit cache-stats[/green]               # Show cache performance
+    [green]smart-commit clear-cache[/green]               # Clear scope cache
     """
     if version:
         from . import __version__
@@ -99,7 +107,7 @@ def main_callback(
     
     # If no subcommand was called, run the default commit workflow
     if ctx.invoked_subcommand is None:
-        asyncio.run(_run_commit(dry_run, atomic, config_file, verbose, repo_path))
+        asyncio.run(_run_commit(dry_run, atomic, config_file, verbose, debug, repo_path))
 
 
 @app.command()
@@ -138,6 +146,63 @@ def config(
 
 
 @app.command()
+def cache_stats():
+    """Show scope cache performance statistics."""
+    try:
+        from smart_commit.core import SmartCommit
+        import asyncio
+        
+        async def show_cache_stats():
+            smart_commit = SmartCommit()
+            await smart_commit.initialize()
+            
+            if hasattr(smart_commit.ai_backend, 'get_cache_stats'):
+                stats = smart_commit.ai_backend.get_cache_stats()
+                
+                console.print("\n[bold blue]Scope Cache Statistics[/bold blue]")
+                console.print(f"Cache Size: {stats['cache_size']}")
+                console.print(f"Max Size: {stats['max_size']}")
+                console.print(f"Cache Hits: {stats['cache_hits']}")
+                console.print(f"Cache Misses: {stats['cache_misses']}")
+                console.print(f"Hit Rate: {stats['hit_rate']:.1%}")
+                
+                if stats['cache_hits'] > 0:
+                    console.print(f"\n[green]Performance: Cache is working efficiently![/green]")
+                else:
+                    console.print(f"\n[yellow]Performance: Cache is still warming up...[/yellow]")
+            else:
+                console.print("[yellow]Cache statistics not available for this backend[/yellow]")
+        
+        asyncio.run(show_cache_stats())
+        
+    except Exception as e:
+        console.print(f"[red]Error getting cache stats: {e}[/red]")
+
+
+@app.command()
+def clear_cache():
+    """Clear the scope cache."""
+    try:
+        from smart_commit.core import SmartCommit
+        import asyncio
+        
+        async def clear_scope_cache():
+            smart_commit = SmartCommit()
+            await smart_commit.initialize()
+            
+            if hasattr(smart_commit.ai_backend, 'clear_scope_cache'):
+                smart_commit.ai_backend.clear_scope_cache()
+                console.print("[green]Scope cache cleared successfully![/green]")
+            else:
+                console.print("[yellow]Cache clearing not available for this backend[/yellow]")
+        
+        asyncio.run(clear_scope_cache())
+        
+    except Exception as e:
+        console.print(f"[red]Error clearing cache: {e}[/red]")
+
+
+@app.command()
 def test(
     backend: Optional[str] = typer.Option(
         None, "--backend", "-b",
@@ -167,6 +232,7 @@ async def _run_commit(
     atomic: bool, 
     config_file: Optional[Path],
     verbose: bool,
+    debug: bool,
     repo_path: Optional[Path]
 ):
     """Run commit command."""
@@ -177,8 +243,13 @@ async def _run_commit(
         else:
             settings = Settings()
         
-        # Setup logging
-        log_level = "DEBUG" if verbose else settings.ui.log_level
+        # Setup logging - debug overrides verbose
+        if debug:
+            log_level = "DEBUG"
+        elif verbose:
+            log_level = "INFO"
+        else:
+            log_level = settings.ui.log_level
         setup_logging(log_level, settings.log_file)
         
         # Create and initialize Smart Commit
@@ -299,9 +370,31 @@ async def _run_test(backend: Optional[str], all_backends: bool):
                 raise typer.Exit(1)
         
         else:
-            # Test configured backend
+            # Test configured backend with enhanced diagnostics
             smart_commit = SmartCommit(settings)
+            
+            console.print("[bold blue]Testing configured AI backend...[/bold blue]")
+            
+            # Basic backend test
             success = await smart_commit.test_ai_backend()
+            
+            if success and hasattr(smart_commit.ai_backend, 'test_connection'):
+                console.print("\n[bold blue]Running detailed connection diagnostics...[/bold blue]")
+                try:
+                    connection_results = await smart_commit.ai_backend.test_connection()
+                    
+                    console.print("\n[bold]Connection Test Results:[/bold]")
+                    console.print(f"  Health Check: {'✅' if connection_results['health_check'] else '❌'}")
+                    console.print(f"  Model List: {'✅' if connection_results['model_list'] else '❌'}")
+                    console.print(f"  Completion Test: {'✅' if connection_results['completion_test'] else '❌'}")
+                    console.print(f"  Response Quality: {connection_results['response_quality']}")
+                    
+                    if connection_results['response_quality'] == 'poor':
+                        console.print("\n[yellow]Warning:[/yellow] Response quality is poor. This may cause commit message generation issues.")
+                        console.print("Consider checking your remote server configuration or model loading.")
+                    
+                except Exception as e:
+                    console.print(f"[yellow]Detailed diagnostics failed:[/yellow] {e}")
             
             if not success:
                 raise typer.Exit(1)
