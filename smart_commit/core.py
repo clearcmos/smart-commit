@@ -28,7 +28,8 @@ class SmartCommit:
         self.ai_backend: Optional[AIBackend] = None
         self.prompt_builder = PromptBuilder(
             character_limit=self.settings.performance.character_limit,
-            optimized_mode=self.settings.performance.macos_local_mode
+            optimized_mode=self.settings.performance.macos_local_mode,
+            settings=self.settings
         )
         
         logger.info("Smart Commit initialized")
@@ -76,7 +77,7 @@ class SmartCommit:
                 self.console.print_success("Staged all changes")
         
         # Generate commit message
-        commit_message = await self._generate_commit_message(repo_state)
+        commit_message = await self._generate_traditional_commit_message(repo_state)
         
         if not commit_message:
             self.console.print_error("Failed to generate commit message")
@@ -211,6 +212,35 @@ class SmartCommit:
             if self.settings.git.auto_push:
                 await self._push_commits()
     
+    async def _generate_traditional_commit_message(self, repo_state: RepositoryState) -> str:
+        """Generate a commit message for traditional (multi-file) commits."""
+        from smart_commit.utils.message_extractor import MessageExtractor
+        
+        # Create message extractor instance
+        message_extractor = MessageExtractor()
+        
+        # Generate message for all changes
+        prompt = self.prompt_builder.build_commit_prompt(
+            repo_state=repo_state,
+            file_context=None
+        )
+        
+        logger.debug(f"Generating traditional commit message for {len(repo_state.all_changes)} files")
+        
+        response = await self.ai_backend.call_with_retry(
+            prompt,
+            max_retries=self.settings.ai.max_retries
+        )
+        
+        commit_message = message_extractor.extract_commit_message(response.content)
+        
+        if commit_message:
+            logger.debug(f"Generated traditional commit message: {commit_message}")
+            return commit_message
+        else:
+            logger.warning("Failed to extract traditional commit message")
+            raise ValueError("Failed to extract commit message")
+    
     async def _generate_commit_message(self, file_change: FileChange) -> str:
         """Generate a commit message for a single file change."""
         from smart_commit.utils.message_extractor import MessageExtractor
@@ -218,7 +248,27 @@ class SmartCommit:
         # Create message extractor instance
         message_extractor = MessageExtractor()
         
+        # Check if this is a large diff that will be truncated
+        # Get original diff length from Git (before truncation)
+        try:
+            original_diff = self.git_repo.repo.git.diff("HEAD", "--", file_change.file_path)
+            original_lines = len(original_diff.split('\n')) if original_diff else 0
+            
+            if original_lines > self.settings.git.truncation_threshold:
+                self.console.show_truncation_notice(
+                    file_change.file_path, 
+                    original_lines, 
+                    self.settings.git.max_diff_lines
+                )
+        except Exception as e:
+            logger.debug(f"Could not get original diff length for {file_change.file_path}: {e}")
+        
         # Generate message for this specific file
+        logger.info(f"🔍 FILE CHANGE OBJECT FOR {file_change.file_path}:")
+        logger.info(f"📊 Change type: {file_change.change_type}")
+        logger.info(f"📈 Diff content length: {len(file_change.diff_content) if file_change.diff_content else 0}")
+        logger.info(f"📋 Diff content preview: {file_change.diff_content[:100] if file_change.diff_content else 'None'}...")
+        
         prompt = self.prompt_builder.build_commit_prompt(
             repo_state=None,  # Not needed for single file
             file_context=file_change
@@ -515,9 +565,39 @@ class SmartCommit:
             # Get the first path component
             parts = file_path.split('/')
             if parts:
-                top_level_items.add(parts[0])
+                top_level = parts[0]
+                
+                # Check if this top-level directory already exists and has modifications
+                # If it does, don't treat it as a new directory addition
+                if len(parts) > 1:  # This is a file inside a directory
+                    # Check if the parent directory has any tracked changes
+                    parent_has_changes = self._directory_has_tracked_changes(top_level)
+                    if parent_has_changes:
+                        # Don't add the directory as a top-level untracked item
+                        # The individual file will be handled separately
+                        continue
+                
+                top_level_items.add(top_level)
         
         return sorted(list(top_level_items))
+
+    def _directory_has_tracked_changes(self, directory: str) -> bool:
+        """Check if a directory has any tracked changes (modified, staged, etc.)."""
+        try:
+            # Check if there are any git changes in this directory
+            repo = self.git_repo.repo
+            if not repo:
+                return False
+            
+            # Check for modified files in the directory
+            modified_files = [f for f in repo.index.diff(None) if f.a_path and f.a_path.startswith(f"{directory}/")]
+            staged_files = [f for f in repo.index.diff('HEAD') if f.a_path and f.a_path.startswith(f"{directory}/")]
+            
+            return bool(modified_files or staged_files)
+            
+        except Exception as e:
+            logger.debug(f"Could not check directory changes for {directory}: {e}")
+            return False
 
 
 class SmartCommitError(Exception):
