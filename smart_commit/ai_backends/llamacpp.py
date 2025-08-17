@@ -239,6 +239,9 @@ Output the commit message directly, for example: feat(scope): description
                         logger.warning(f"❌ Response too short, likely incomplete: '{content}'")
                         raise ValueError("Response too short, likely incomplete")
                     
+                    # Fix spacing issues before validation
+                    content = self._fix_commit_message_spacing(content)
+                    
                     # Check if response looks like a commit message
                     validation_start = time.time()
                     logger.info(f"🔍 VALIDATING RESPONSE FOR: {content[:50]}...")
@@ -391,6 +394,24 @@ Output the commit message directly, for example: feat(scope): description
         
         logger.info(f"✅ VALIDATION COMPLETED SUCCESSFULLY for: '{content}'")
         return True
+    
+    def _fix_commit_message_spacing(self, content: str) -> str:
+        """Fix spacing issues in commit messages to ensure consistent format."""
+        import re
+        
+        # Fix missing space after colon: type(scope):description -> type(scope): description
+        # This handles the main spacing issue we're seeing
+        fixed_content = re.sub(r'([a-z]+\([^)]+\)):([^\s])', r'\1: \2', content, flags=re.IGNORECASE)
+        
+        # Also fix scope-less format: type:description -> type: description
+        fixed_content = re.sub(r'([a-z]+):([^\s])', r'\1: \2', fixed_content, flags=re.IGNORECASE)
+        
+        # Log if we made any fixes
+        if fixed_content != content:
+            from loguru import logger
+            logger.info(f"🔧 Fixed spacing in commit message: '{content}' -> '{fixed_content}'")
+        
+        return fixed_content
     
     def _get_expected_scope_for_file(self, file_path: str) -> Optional[str]:
         """Get the expected scope for a file based on its path."""

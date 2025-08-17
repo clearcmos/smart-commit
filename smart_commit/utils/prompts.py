@@ -84,6 +84,7 @@ Analyze the changes above and generate a conventional commit message.
 - **README updates**: If modifying README.md, use `docs(docs):` scope and be specific about what was updated
 - **Documentation**: If adding new sections/notes, use `feat(docs):` for new content, `docs(docs):` for updates
 - **IMPORTANT**: ALWAYS use parentheses around scope: `type(scope):` format
+- **File deletions**: ALWAYS use `refactor:` for deletions. ALWAYS include space after colon. ALWAYS be specific about what's being removed.
 
 ## EXAMPLES FOR COMMON CHANGES
 
@@ -105,6 +106,24 @@ Analyze the changes above and generate a conventional commit message.
 ✅ `fix(utils): remove unnecessary PromptBuilder initialization`
 ✅ `fix(git): resolve diff content extraction issues`
 ❌ `fix(core): fix bugs`
+
+**File Deletions/Cleanup**:
+✅ `refactor(claude): remove deprecated installer scripts and documentation`
+✅ `refactor(utils): clean up unused configuration files`
+❌ `fix(claude): remove unused files`
+❌ `chore(claude): remove installer`
+
+
+
+## STRICT ENFORCEMENT RULES
+- **For deletions**: ONLY use `refactor:` type, NEVER use `fix:` or `chore:`
+- **Spacing**: ALWAYS include space after colon: `type(scope): description`
+- **Consistency**: Use similar descriptions for similar file types
+- **Specificity**: Always mention what type of file/content is being removed
+
+
+
+
 
 ## CRITICAL FORMAT REQUIREMENTS
 You MUST respond with ONLY the commit message in this exact format:
