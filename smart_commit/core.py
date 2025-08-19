@@ -136,7 +136,16 @@ class SmartCommit:
                     with open(item_path, 'r', encoding='utf-8', errors='ignore') as f:
                         content = f.read()
                     
+                    # Enhanced new file context for better AI understanding
+                    file_type_info = self._analyze_new_file_type(item_path, content)
+                    enhanced_context = self._enhance_new_file_context(untracked_item, repo_state)
+                    
                     diff_content = f"--- /dev/null\n+++ b/{untracked_item}\n"
+                    diff_content += f"+NEW FILE: {untracked_item}\n"
+                    diff_content += f"+FILE TYPE: {file_type_info['type']}\n"
+                    diff_content += f"+PURPOSE: {file_type_info['description']}\n"
+                    diff_content += f"+CONTEXT: {enhanced_context}\n"
+                    diff_content += f"+CONTENT PREVIEW:\n"
                     for line in content.splitlines():
                         diff_content += f"+{line}\n"
                     
@@ -567,37 +576,121 @@ class SmartCommit:
             if parts:
                 top_level = parts[0]
                 
-                # Check if this top-level directory already exists and has modifications
-                # If it does, don't treat it as a new directory addition
-                if len(parts) > 1:  # This is a file inside a directory
-                    # Check if the parent directory has any tracked changes
-                    parent_has_changes = self._directory_has_tracked_changes(top_level)
-                    if parent_has_changes:
-                        # Don't add the directory as a top-level untracked item
-                        # The individual file will be handled separately
+                # Check if this top-level directory already exists in git
+                if len(parts) > 1:  # This is a file/directory inside a parent directory
+                    if self._directory_exists_in_git(top_level):
+                        # Parent directory exists, so add the specific nested item
+                        # This will be processed as an individual file/directory change
+                        top_level_items.add(file_path)
                         continue
                 
+                # Either it's a top-level file or a completely new directory
                 top_level_items.add(top_level)
         
         return sorted(list(top_level_items))
 
-    def _directory_has_tracked_changes(self, directory: str) -> bool:
-        """Check if a directory has any tracked changes (modified, staged, etc.)."""
+    def _directory_exists_in_git(self, directory: str) -> bool:
+        """Check if a directory already exists in git (tracked or has tracked content)."""
         try:
-            # Check if there are any git changes in this directory
             repo = self.git_repo.repo
             if not repo:
                 return False
             
-            # Check for modified files in the directory
-            modified_files = [f for f in repo.index.diff(None) if f.a_path and f.a_path.startswith(f"{directory}/")]
-            staged_files = [f for f in repo.index.diff('HEAD') if f.a_path and f.a_path.startswith(f"{directory}/")]
+            # Check if the directory itself is tracked
+            try:
+                # Try to get the tree object for this directory
+                tree = repo.tree()
+                for item in tree.traverse():
+                    if item.path == directory or item.path.startswith(f"{directory}/"):
+                        return True
+            except:
+                pass
             
-            return bool(modified_files or staged_files)
+            # Check if there are any tracked files in this directory
+            tracked_files = [f for f in repo.tree().traverse() if f.path.startswith(f"{directory}/")]
+            if tracked_files:
+                return True
+            
+            # Check if the directory exists in the working tree (even if untracked)
+            # but has tracked content from previous commits
+            working_dir = Path(self.git_repo.repo_path) / directory
+            if working_dir.exists() and working_dir.is_dir():
+                # Check if any files in this directory are tracked
+                for item in working_dir.rglob('*'):
+                    if item.is_file():
+                        try:
+                            # Check if this file is tracked in git
+                            repo.git.ls_files(str(item.relative_to(self.git_repo.repo_path)))
+                            return True
+                        except:
+                            # File is not tracked, continue checking others
+                            continue
+            
+            return False
             
         except Exception as e:
-            logger.debug(f"Could not check directory changes for {directory}: {e}")
+            logger.debug(f"Could not check if directory {directory} exists in git: {e}")
             return False
+
+    def _analyze_new_file_type(self, file_path: Path, content: str) -> Dict[str, str]:
+        """Analyze new file to determine appropriate commit type and description."""
+        file_info = {
+            'extension': file_path.suffix.lower(),
+            'is_documentation': file_path.suffix.lower() in ['.md', '.txt', '.rst', '.adoc'],
+            'is_script': file_path.suffix.lower() in ['.py', '.sh', '.js', '.ts', '.rb', '.php'],
+            'is_config': file_path.suffix.lower() in ['.json', '.yaml', '.yml', '.toml', '.ini', '.cfg'],
+            'is_data': file_path.suffix.lower() in ['.csv', '.xml', '.sql', '.db'],
+            'content_preview': content[:200] if content else ''
+        }
+        
+        # Determine commit type based on analysis
+        if file_info['is_documentation']:
+            return {'type': 'docs', 'description': 'documentation'}
+        elif file_info['is_script']:
+            return {'type': 'feat', 'description': 'new script/utility'}
+        elif file_info['is_config']:
+            return {'type': 'chore', 'description': 'configuration'}
+        elif file_info['is_data']:
+            return {'type': 'feat', 'description': 'data file'}
+        else:
+            return {'type': 'feat', 'description': 'new file'}
+
+    def _enhance_new_file_context(self, file_path: str, repo_state: RepositoryState) -> str:
+        """Add context about where the new file fits in the project."""
+        try:
+            # Get existing directories from the repository
+            existing_dirs = set()
+            if self.git_repo.repo:
+                try:
+                    tree = self.git_repo.repo.tree()
+                    for item in tree.traverse():
+                        if item.type == 'tree':  # Directory
+                            existing_dirs.add(item.path)
+                except:
+                    pass
+            
+            # Get the parent directory of the new file
+            parent_dir = file_path.split('/')[0] if '/' in file_path else 'root'
+            
+            # Check if this is adding to an existing directory structure
+            if parent_dir in existing_dirs:
+                context = f"Adding new content to existing {parent_dir} directory"
+            else:
+                context = f"Creating new {parent_dir} directory structure"
+            
+            # Add more context based on file type
+            if file_path.endswith('.md'):
+                context += " (documentation)"
+            elif file_path.endswith('.py'):
+                context += " (Python script)"
+            elif file_path.endswith('.sh'):
+                context += " (shell script)"
+            
+            return context
+            
+        except Exception as e:
+            logger.debug(f"Could not enhance new file context for {file_path}: {e}")
+            return "new file addition"
 
 
 class SmartCommitError(Exception):
