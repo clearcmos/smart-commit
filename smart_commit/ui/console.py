@@ -197,7 +197,7 @@ class SmartCommitConsole:
         
         table = Table(box=box.SIMPLE_HEAD)
         table.add_column("#", style="bold cyan", width=4)
-        table.add_column("File", style="bold", width=40)
+        table.add_column("File", style="bold", width=80)  # Increased from 40 to 80 to prevent truncation
         table.add_column("Commit Message", style="green", width=120, no_wrap=True)  # Increased width to 120
         
         for i, commit in enumerate(commits, 1):
