@@ -134,22 +134,67 @@ class GitRepository:
         changes = []
         
         try:
-            # Get staged changes (index vs HEAD)
-            diffs = self.repo.index.diff('HEAD')
-            
-            for diff in diffs:
-                file_path = diff.a_path or diff.b_path
-                change_type = self._get_change_type(diff)
-                diff_content = self._get_diff_content(diff, max_lines)
-                
-                changes.append(FileChange(
-                    file_path=file_path,
-                    change_type=change_type,
-                    diff_content=diff_content,
-                    lines_added=diff.a_blob.size if diff.a_blob else 0,
-                    lines_removed=diff.b_blob.size if diff.b_blob else 0
-                ))
-                
+            # Use git status --porcelain to get the actual staged status
+            # This is more reliable than trying to interpret GitPython diffs
+            status_output = self.repo.git.status('--porcelain')
+            for line in status_output.split('\n'):
+                if line.strip():
+                    status_code = line[:2]
+                    file_path = line[3:]
+                    
+                    if status_code.startswith('A'):  # Staged addition
+                        # This is a staged addition
+                        change_type = 'A'  # Added
+                        
+                        # Get the file content for the diff
+                        try:
+                            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                content = f.read()
+                                lines = content.split('\n')
+                                if len(lines) > max_lines:
+                                    lines = lines[:max_lines] + [f"... (truncated, {len(lines) - max_lines} more lines)"]
+                                diff_content = "\n".join(lines)
+                        except Exception:
+                            diff_content = f"Added file: {file_path}"
+                        
+                        changes.append(FileChange(
+                            file_path=file_path,
+                            change_type=change_type,
+                            diff_content=diff_content,
+                            lines_added=len(content.split('\n')) if 'content' in locals() else 0,
+                            lines_removed=0
+                        ))
+                    elif status_code.startswith('M'):  # Staged modification
+                        # This is a staged modification
+                        change_type = 'M'  # Modified
+                        
+                        # Get the diff between HEAD and the staged version
+                        try:
+                            diff_output = self.repo.git.diff('HEAD', '--', file_path)
+                            diff_content = diff_output
+                        except Exception:
+                            diff_content = f"Modified file: {file_path}"
+                        
+                        changes.append(FileChange(
+                            file_path=file_path,
+                            change_type=change_type,
+                            diff_content=diff_content,
+                            lines_added=0,
+                            lines_removed=0
+                        ))
+                    elif status_code.startswith('D'):  # Staged deletion
+                        # This is a staged deletion
+                        change_type = 'D'  # Deleted
+                        diff_content = f"Deleted file: {file_path}"
+                        
+                        changes.append(FileChange(
+                            file_path=file_path,
+                            change_type=change_type,
+                            diff_content=diff_content,
+                            lines_added=0,
+                            lines_removed=0
+                        ))
+                        
         except Exception as e:
             logger.warning(f"Failed to get staged changes: {e}")
         
