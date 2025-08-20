@@ -50,7 +50,7 @@ class ScopeCache:
         try:
             from smart_commit.utils.prompts import PromptBuilder
             pb = PromptBuilder()  # No settings needed for scope analysis
-            return pb._analyze_scope(file_path)
+            return pb._extract_scope(file_path)
         except Exception as e:
             logger.debug(f"Failed to compute scope for {file_path}: {e}")
             return None
