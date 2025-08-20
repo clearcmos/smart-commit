@@ -418,7 +418,7 @@ Output the commit message directly, for example: feat(scope): description
         try:
             from smart_commit.utils.prompts import PromptBuilder
             pb = PromptBuilder()
-            return pb._analyze_scope(file_path)
+            return pb._extract_scope(file_path)
         except:
             return None
     
