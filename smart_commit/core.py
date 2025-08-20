@@ -355,7 +355,7 @@ class SmartCommit:
         change_type = file_change.change_type
         
         # Use the PromptBuilder to get the proper scope
-        scope = self.prompt_builder._analyze_scope(file_path)
+        scope = self.prompt_builder._extract_scope(file_path)
         
         # Analyze the file path to determine appropriate commit type and scope
         if 'install' in file_path.lower():
