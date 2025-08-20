@@ -79,12 +79,13 @@ Analyze this NEW file and generate a commit message describing what NEW function
 ✅ `chore({scope}): add configuration file for deployment`
 
 ## FORMAT REQUIREMENTS
-- **Format**: type(scope): description
-- **Scope**: {scope}
+- **Format**: EXACTLY type({scope}): description
+- **Required scope in parentheses**: ({scope})
 - **Description**: Focus on what NEW capability is being introduced
 
 ## RESPONSE
-Generate ONLY the commit message in this format: type(scope): description"""
+Generate ONLY the commit message in this EXACT format: type({scope}): description
+Example for this file: feat({scope}): add new functionality"""
 
         # Log the final prompt for debugging
         from loguru import logger
@@ -121,12 +122,13 @@ Analyze the changes to this existing file and generate a commit message describi
 - **Use `chore:` for maintenance tasks**
 
 ## FORMAT REQUIREMENTS
-- **Format**: type(scope): description
-- **Scope**: {scope}
+- **Format**: EXACTLY type({scope}): description
+- **Required scope in parentheses**: ({scope})
 - **Description**: Focus on what specific change was made
 
 ## RESPONSE
-Generate ONLY the commit message in this format: type(scope): description"""
+Generate ONLY the commit message in this EXACT format: type({scope}): description
+Example for this file: docs({scope}): update file documentation"""
 
         # Log the final prompt for debugging
         from loguru import logger
@@ -208,9 +210,9 @@ Analyze the changes above and generate ONLY the commit message:"""
             scope_map = {
                 'install.py': 'install',
                 'pyproject.toml': 'build',
-                'README.md': 'docs',
-                'CLAUDE.md': 'docs',
-                'LICENSE': 'docs'
+                'README.md': 'root',      # Changed from 'docs' to avoid docs(docs):
+                'CLAUDE.md': 'root',      # Changed from 'docs' to avoid docs(docs):
+                'LICENSE': 'root'         # Changed from 'docs' to avoid docs(docs):
             }
             return scope_map.get(parts[0], 'root')
         
