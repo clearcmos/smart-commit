@@ -63,6 +63,10 @@ def main_callback(
         False, "--atomic", "-a",
         help="Create one commit per modified file"
     ),
+    no_push: bool = typer.Option(
+        False, "--no-push", "-np",
+        help="Create commits but don't push to remote"
+    ),
     config_file: Optional[Path] = typer.Option(
         None, "--config", "-c",
         help="Path to configuration file"
@@ -93,12 +97,16 @@ def main_callback(
     [green]smart-commit --dry-run[/green]                 # Preview without committing  
     [green]smart-commit --atomic[/green]                  # One commit per file
     [green]smart-commit --atomic --dry-run[/green]        # Preview atomic commits
+    [green]smart-commit --atomic --no-push[/green]        # Create commits without pushing
     [green]smart-commit --atomic --verbose[/green]        # Verbose logging
     [green]smart-commit --atomic --debug[/green]          # Full debug logging
     [green]smart-commit config --show[/green]             # Show configuration
     [green]smart-commit test[/green]                      # Test AI backend
     [green]smart-commit cache-stats[/green]               # Show cache performance
     [green]smart-commit clear-cache[/green]               # Clear scope cache
+    
+    [bold blue]Flags:[/bold blue]
+    [green]--no-push[/green]                              # Create commits but don't push to remote
     """
     if version:
         from . import __version__
@@ -107,7 +115,7 @@ def main_callback(
     
     # If no subcommand was called, run the default commit workflow
     if ctx.invoked_subcommand is None:
-        asyncio.run(_run_commit(dry_run, atomic, config_file, verbose, debug, repo_path))
+        asyncio.run(_run_commit(dry_run, atomic, no_push, config_file, verbose, debug, repo_path))
 
 
 @app.command()
@@ -230,6 +238,7 @@ def test(
 async def _run_commit(
     dry_run: bool, 
     atomic: bool, 
+    no_push: bool,
     config_file: Optional[Path],
     verbose: bool,
     debug: bool,
@@ -263,6 +272,11 @@ async def _run_commit(
             smart_commit.ai_backend.api_url,
             smart_commit.ai_backend.model
         )
+        
+        # Override auto_push setting if --no-push flag is used
+        if no_push:
+            smart_commit.settings.git.auto_push = False
+            smart_commit.console.print_info("Auto-push disabled (--no-push flag used)")
         
         # Run appropriate workflow
         if atomic:
