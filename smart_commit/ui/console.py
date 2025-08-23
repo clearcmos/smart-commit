@@ -13,7 +13,11 @@ from rich.tree import Tree
 from rich.text import Text
 from rich.theme import Theme
 from rich import box
+from rich.live import Live
 import time
+import sys
+import os
+import asyncio
 
 from ..git_ops.repository import FileChange, RepositoryState
 from ..config.settings import Settings
@@ -190,62 +194,234 @@ class SmartCommitConsole:
         self.console.print(message_panel)
         self.console.print()
     
-    def show_atomic_commits_preview(self, commits: List[Dict[str, str]]) -> None:
-        """Show atomic commits preview in a beautiful format."""
-        self.console.print("[bold blue]Proposed Atomic Commits[/bold blue]")
-        self.console.print()
-        
-        table = Table(box=box.SIMPLE_HEAD)
+    def show_atomic_commits_preview(self, commits: List[Dict[str, str]], selected_index: int = -1, editing_index: int = -1) -> Table:
+        """Show atomic commits preview with optional highlighting and inline editing."""
+        table = Table(box=box.SIMPLE_HEAD, expand=True)
         table.add_column("#", style="bold cyan", width=4)
-        table.add_column("File", style="bold", width=80)  # Increased from 40 to 80 to prevent truncation
-        table.add_column("Commit Message", style="green", width=120, no_wrap=True)  # Increased width to 120
+        table.add_column("File", style="bold", ratio=1)
+        table.add_column("Commit Message", style="green", ratio=2)
         
         for i, commit in enumerate(commits, 1):
-            # Handle long commit messages by wrapping them properly
-            message = commit["message"]
-            if len(message) > 110:  # Increased from 75 to 110 for better display
-                # Split long messages at word boundaries
-                words = message.split()
-                lines = []
-                current_line = ""
-                
-                for word in words:
-                    if len(current_line + " " + word) <= 110:  # Increased from 75 to 110
-                        current_line += (" " + word) if current_line else word
-                    else:
-                        if current_line:
-                            lines.append(current_line)
-                        current_line = word
-                
-                if current_line:
-                    lines.append(current_line)
-                
-                # First row with file path
+            if i - 1 == editing_index:
+                # Editing row - show actual editing state  
                 table.add_row(
-                    str(i),
-                    commit["file_path"],
-                    lines[0] if lines else message
+                    f"[yellow bold]{i}[/yellow bold]",
+                    f"[yellow]{commit['file_path']}[/yellow]", 
+                    f"[black on white]{commit['message']}[/black on white]"
                 )
-                
-                # Additional rows for long messages
-                for line in lines[1:]:
-                    table.add_row("", "", line)
+            elif i - 1 == selected_index:
+                # Highlighted row with different styling
+                table.add_row(
+                    f"[reverse bold cyan]{i}[/reverse bold cyan]",
+                    f"[reverse bold]{commit['file_path']}[/reverse bold]", 
+                    f"[reverse bold green]{commit['message']}[/reverse bold green]"
+                )
             else:
+                # Normal row
                 table.add_row(
                     str(i),
                     commit["file_path"],
-                    message
+                    commit["message"]
                 )
         
+        return table
+    
+    def _inline_edit_commit_message(self, commits: List[Dict[str, str]], edit_index: int, current_index: int) -> Optional[str]:
+        """Handle true inline editing directly in the table cell."""
+        current_message = commits[edit_index]["message"]
+        editing_message = current_message
+        cursor_pos = len(current_message)
+        
+        while True:
+            # Show table with current editing state
+            self._display_table_with_inline_editing(commits, current_index, edit_index, editing_message, cursor_pos)
+            
+            try:
+                char = self._get_char()
+                
+                if char == '\r' or char == '\n':  # Enter - confirm edit
+                    return editing_message if editing_message != current_message else None
+                
+                elif char == '\x1b':  # Escape - cancel edit  
+                    char += self._get_char()  # Get rest of escape sequence
+                    if len(char) == 2:  # Simple ESC
+                        return None
+                    # For arrow keys in escape sequences, ignore for now
+                    continue
+                
+                elif char == '\x7f' or char == '\b':  # Backspace
+                    if cursor_pos > 0:
+                        editing_message = editing_message[:cursor_pos-1] + editing_message[cursor_pos:]
+                        cursor_pos -= 1
+                
+                elif char == '\x03':  # Ctrl+C - cancel
+                    return None
+                
+                elif len(char) == 1 and ord(char) >= 32:  # Printable character
+                    editing_message = editing_message[:cursor_pos] + char + editing_message[cursor_pos:]
+                    cursor_pos += 1
+                    
+            except KeyboardInterrupt:
+                return None
+    
+    def _display_table_with_inline_editing(self, commits: List[Dict[str, str]], selected_index: int, editing_index: int, editing_message: str = "", cursor_pos: int = 0):
+        """Display table with real-time inline editing."""
+        # Create a copy of commits with the editing message
+        display_commits = commits.copy()
+        if editing_index >= 0:
+            display_commits[editing_index] = display_commits[editing_index].copy()
+            # Show current editing state with cursor
+            before_cursor = editing_message[:cursor_pos]
+            after_cursor = editing_message[cursor_pos:]
+            display_commits[editing_index]["message"] = f"{before_cursor}▋{after_cursor}"
+        
+        table_lines = len(commits) + 5
+        
+        # Generate the table with current editing state
+        table = self.show_atomic_commits_preview(display_commits, selected_index, editing_index)
+        
+        # Clear and redraw table area  
+        print(f"\033[{table_lines}A", end="")
+        print("\033[0J", end="")  # Clear from cursor to end
+        
+        self.console.print(table, end="")
+        print()
+    
+    def _get_char(self) -> str:
+        """Get a single character from stdin without pressing Enter."""
+        try:
+            if os.name == 'nt':  # Windows
+                import msvcrt
+                return msvcrt.getch().decode('utf-8')
+            else:  # Unix/Linux/macOS
+                import termios, tty
+                fd = sys.stdin.fileno()
+                old_settings = termios.tcgetattr(fd)
+                try:
+                    tty.setcbreak(fd)  # Use setcbreak instead of cbreak
+                    ch = sys.stdin.read(1)
+                finally:
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+                return ch
+        except (ImportError, OSError, AttributeError):
+            # Fallback: use input() for systems without termios/msvcrt or in environments like IDEs
+            self.console.print("[yellow]Interactive navigation not supported in this environment.[/yellow]")
+            self.console.print("[yellow]Using simplified input mode...[/yellow]")
+            return input("Press Enter to continue or 'c' to cancel: ")[0:1] or '\r'
+    
+    def interactive_atomic_commits_approval(self, commits: List[Dict[str, str]], start_index: int = 0) -> tuple[str, int]:
+        """Interactive approval with arrow key navigation, fallback to simple mode if needed."""
+        # Check if terminal supports interactive mode
+        try:
+            import termios, tty
+            fd = sys.stdin.fileno()
+            termios.tcgetattr(fd)  # Test if we can get terminal attributes
+        except (ImportError, OSError, AttributeError):
+            # Fall back to simplified approval
+            return self._simplified_approval(commits)
+        
+        selected_index = start_index  # Start with specified commit selected
+        commit_count = len(commits)
+        
+        # Instructions panel
+        instructions = Panel(
+            "[bold yellow]Navigation:[/bold yellow]\n"
+            "  [cyan]↑/↓[/cyan] - Navigate through commit messages\n"
+            "  [green]ENTER[/green] - Edit selected commit message\n"
+            "  [blue]TAB + ENTER[/blue] - Accept all and continue\n"
+            "  [red]c[/red] - Cancel (no commits)",
+            title="Interactive Commit Review",
+            style="yellow"
+        )
+        
+        # Clear screen and show initial state
+        self.console.clear()
+        self.console.print("\n[bold blue]Proposed Atomic Commits[/bold blue]\n")
+        self.console.print(instructions)
+        self.console.print()
+        
+        # Show initial table
+        self._display_table_with_selection(commits, selected_index)
+        
+        last_update_time = time.time()
+        
+        while True:
+            # Get user input
+            try:
+                char = self._get_char()
+                
+                if char == '\x1b':  # Escape sequence (arrow keys)
+                    char += self._get_char()  # Get [
+                    char += self._get_char()  # Get direction
+                    
+                    if char == '\x1b[A':  # Up arrow
+                        new_index = max(0, selected_index - 1)
+                        if new_index != selected_index:
+                            selected_index = new_index
+                            # Much lighter throttle since we're not clearing screen
+                            current_time = time.time()
+                            if current_time - last_update_time > 0.02:  # 20ms throttle
+                                self._display_table_with_selection(commits, selected_index)
+                                last_update_time = current_time
+                    elif char == '\x1b[B':  # Down arrow  
+                        new_index = min(commit_count - 1, selected_index + 1)
+                        if new_index != selected_index:
+                            selected_index = new_index
+                            # Much lighter throttle since we're not clearing screen
+                            current_time = time.time()
+                            if current_time - last_update_time > 0.02:  # 20ms throttle
+                                self._display_table_with_selection(commits, selected_index)
+                                last_update_time = current_time
+                
+                elif char == '\r' or char == '\n':  # Enter key (try both)
+                    # Enter inline editing mode
+                    return "edit", selected_index
+                
+                elif char == '\t':  # Tab key - check for Tab+Enter
+                    self.console.print("\n[yellow]Press ENTER to accept all commits...[/yellow]")
+                    next_char = self._get_char()
+                    if next_char == '\r' or next_char == '\n':  # Enter after Tab
+                        return "approve", -1
+                    # If not Enter, redraw table
+                    self._display_table_with_selection(commits, selected_index)
+                
+                elif char.lower() == 'c':  # Cancel
+                    return "cancel", -1
+                
+                elif char == '\x03':  # Ctrl+C
+                    return "cancel", -1
+                    
+            except KeyboardInterrupt:
+                return "cancel", -1
+    
+    def _display_table_with_selection(self, commits: List[Dict[str, str]], selected_index: int):
+        """Display table with current selection using minimal cursor positioning."""
+        # Use more efficient cursor positioning - only redraw the table area
+        # Move to beginning of table, clear to end of screen, then redraw
+        table_lines = len(commits) + 5
+        
+        # Generate the table content first (double buffering)
+        table = self.show_atomic_commits_preview(commits, selected_index)
+        
+        # Now do minimal screen update - move cursor up and clear from there down
+        print(f"\033[{table_lines}A", end="")  # Move cursor up
+        print("\033[0J", end="")  # Clear from cursor to end of screen
+        
+        # Print the pre-generated table
+        self.console.print(table, end="")
+        print()  # Add final newline
+    
+    def _simplified_approval(self, commits: List[Dict[str, str]]) -> tuple[str, int]:
+        """Simplified approval for environments that don't support interactive navigation."""
+        self.console.print("\n[bold blue]Proposed Atomic Commits[/bold blue]\n")
+        table = self.show_atomic_commits_preview(commits)
         self.console.print(table)
         self.console.print()
-    
-    def prompt_atomic_commits_approval(self, commit_count: int) -> str:
-        """Prompt for atomic commits approval."""
+        
         options_text = (
             "[bold yellow]Options:[/bold yellow]\n"
             "  [green]ENTER[/green] - Accept all messages and create commits\n"
-            f"  [cyan]1-{commit_count}[/cyan] - Edit specific commit message\n"
+            f"  [cyan]1-{len(commits)}[/cyan] - Edit specific commit message\n"
             "  [red]c[/red] - Cancel (no commits will be made)"
         )
         
@@ -254,26 +430,51 @@ class SmartCommitConsole:
         while True:
             choice = Prompt.ask(
                 f"Your choice",
-                choices=[""] + [str(i) for i in range(1, commit_count + 1)] + ["c", "C"],
+                choices=[""] + [str(i) for i in range(1, len(commits) + 1)] + ["c", "C"],
                 default="",
                 show_choices=False
             )
             
             if choice == "":
-                return "approve"
+                return "approve", -1
             elif choice.lower() == "c":
-                return "cancel"
-            elif choice.isdigit() and 1 <= int(choice) <= commit_count:
-                return f"edit_{choice}"
+                return "cancel", -1
+            elif choice.isdigit() and 1 <= int(choice) <= len(commits):
+                return "edit", int(choice) - 1
             else:
                 self.console.print("[red]Invalid choice. Please try again.[/red]")
     
     def prompt_commit_message_edit(self, current_message: str, file_path: str) -> Optional[str]:
-        """Prompt user to edit a commit message."""
+        """Prompt user to edit a commit message with pre-filled content."""
         self.console.print(f"\n[bold blue]Editing commit for:[/bold blue] [yellow]{file_path}[/yellow]")
-        self.console.print(f"[bold]Current message:[/bold] {current_message}")
+        self.console.print(f"[muted]Use backspace to edit from the end, or clear and retype[/muted]\n")
         
-        new_message = Prompt.ask("Enter new commit message", default=current_message)
+        # Try using readline for pre-filled input if available
+        try:
+            import readline
+            
+            def prefill_input(prompt_text: str, prefill_text: str) -> str:
+                def hook():
+                    readline.insert_text(prefill_text)
+                    readline.redisplay()
+                
+                readline.set_pre_input_hook(hook)
+                try:
+                    result = input(prompt_text)
+                finally:
+                    readline.set_pre_input_hook()
+                return result
+            
+            new_message = prefill_input(f"Commit message ({current_message}): ", current_message)
+            
+        except (ImportError, OSError):
+            # Fallback: show current message and ask for new one
+            self.console.print(f"[bold]Current message:[/bold] {current_message}")
+            new_message = Prompt.ask(
+                "[bold]New commit message (or press ENTER to keep current)[/bold]",
+                default=current_message
+            )
+        
         return new_message if new_message != current_message else None
     
     def confirm_action(self, message: str, default: bool = True) -> bool:
