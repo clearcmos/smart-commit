@@ -81,11 +81,17 @@ Analyze this NEW file and generate a commit message describing what NEW function
 ## FORMAT REQUIREMENTS
 - **Format**: EXACTLY type({scope}): description
 - **Required scope in parentheses**: ({scope})
-- **Description**: Focus on what NEW capability is being introduced
+- **Description**: MUST be a complete sentence describing what NEW capability is being introduced
+- **NEVER end with prepositions**: Don't end with "for", "to", "with", etc.
+- **Be specific**: Instead of "add script for", say "add script for converting file formats"
 
-## RESPONSE
-Generate ONLY the commit message in this EXACT format: type({scope}): description
-Example for this file: feat({scope}): add new functionality"""
+## RESPONSE RULES
+1. Generate ONLY the commit message in this EXACT format: type({scope}): description
+2. The description MUST be a complete, grammatically correct sentence
+3. NEVER leave sentences incomplete or hanging with prepositions
+4. Be specific about what NEW functionality you're adding
+
+Example for this file: feat({scope}): add new user authentication system"""
 
         # Log the final prompt for debugging
         from loguru import logger
@@ -124,11 +130,17 @@ Analyze the changes to this existing file and generate a commit message describi
 ## FORMAT REQUIREMENTS
 - **Format**: EXACTLY type({scope}): description
 - **Required scope in parentheses**: ({scope})
-- **Description**: Focus on what specific change was made
+- **Description**: MUST be a complete sentence with specific details
+- **NEVER end with prepositions**: Don't end with "for", "to", "with", etc.
+- **Be specific**: Instead of "add error handling for", say "add error handling for missing .env file"
 
-## RESPONSE
-Generate ONLY the commit message in this EXACT format: type({scope}): description
-Example for this file: docs({scope}): update file documentation"""
+## RESPONSE RULES
+1. Generate ONLY the commit message in this EXACT format: type({scope}): description
+2. The description MUST be a complete, grammatically correct sentence
+3. NEVER leave sentences incomplete or hanging with prepositions
+4. Be specific about what you're changing, not just the action
+
+Example for this file: docs({scope}): update file documentation with new sections"""
 
         # Log the final prompt for debugging
         from loguru import logger
