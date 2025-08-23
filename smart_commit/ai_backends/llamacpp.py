@@ -46,6 +46,13 @@ EXAMPLE: If the prompt says "SCOPE: ai" and the file is "smart_commit/ai_backend
 
 The scope is determined by the prompt instruction, NOT by the file path. Follow the scope guidance exactly as provided.
 
+COMPLETION REQUIREMENT: Your response MUST be a complete, grammatically correct sentence.
+NEVER end with prepositions like "for", "to", "with", "in", "on".
+NEVER produce incomplete thoughts.
+
+BAD examples: "add error handling for", "remove unnecessary", "fix issues with"
+GOOD examples: "add error handling for missing .env file", "remove unnecessary debug files", "fix issues with authentication timeout"
+
 OUTPUT FORMAT: You must output ONLY a conventional commit message, nothing else.
 DO NOT wrap your response in backticks, quotes, or markdown formatting.
 DO NOT add any prefixes like "commit:" or "message:".
@@ -72,12 +79,12 @@ Output the commit message directly, for example: feat(scope): description
         
         payload = {
             "prompt": formatted_prompt,
-            "max_tokens": 150,
-            "temperature": 0.6,  # Qwen recommendation
-            "top_k": 20,         # Qwen recommendation
-            "top_p": 0.95,       # Qwen recommendation
+            "max_tokens": 300,
+            "temperature": 0.2,  # Lower for more focused completion
+            "top_k": 20,         # Qwen recommendation  
+            "top_p": 0.1,        # Much lower for code/structured completion
             "min_p": 0,          # Qwen recommendation
-            "stop": ["<|im_end|>", "\n\n"],  # ChatML stop tokens
+            "stop": ["<|im_end|>", "\n\n", " for\n", " to\n", " with\n"],  # ChatML + preposition stops
             "stream": False
         }
         
