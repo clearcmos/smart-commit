@@ -196,20 +196,23 @@ class SmartCommit:
             self.console.print_error("Failed to generate commit messages")
             return
         
-        # Show preview and get approval
-        self.console.show_atomic_commits_preview(proposed_commits)
-        
-        if dry_run:
-            self.console.print_info("Dry run complete - no commits created")
-            return
-        
-        # Get user approval
+        # Get user approval (works for both dry-run and real commits)
         if self.settings.ui.interactive:
             approval = await self._handle_atomic_commits_approval(proposed_commits)
             if not approval:
                 self.console.print_info("Atomic commits cancelled")
                 return
             proposed_commits = approval
+        else:
+            # Non-interactive mode: show preview
+            self.console.print("\n[bold blue]Proposed Atomic Commits[/bold blue]\n")
+            table = self.console.show_atomic_commits_preview(proposed_commits)
+            self.console.print(table)
+            self.console.print()
+        
+        if dry_run:
+            self.console.print_info("Dry run complete - no commits would be created")
+            return
         
         # Create commits
         created_commits = await self._create_atomic_commits(proposed_commits)
@@ -440,28 +443,29 @@ class SmartCommit:
             return f"update({scope or 'smart_commit'}): {clean_filename}"
     
     async def _handle_atomic_commits_approval(self, proposed_commits: List[Dict[str, str]]) -> Optional[List[Dict[str, str]]]:
-        """Handle user approval and editing of atomic commits."""
+        """Handle user approval and editing of atomic commits with interactive navigation."""
+        current_index = 0  # Remember the current selection
+        
         while True:
-            choice = self.console.prompt_atomic_commits_approval(len(proposed_commits))
+            action, index = self.console.interactive_atomic_commits_approval(proposed_commits, current_index)
             
-            if choice == "approve":
+            if action == "approve":
                 return proposed_commits
-            elif choice == "cancel":
+            elif action == "cancel":
                 return None
-            elif choice.startswith("edit_"):
-                # Edit specific commit
-                index = int(choice.split("_")[1]) - 1
-                if 0 <= index < len(proposed_commits):
-                    commit = proposed_commits[index]
-                    new_message = self.console.prompt_commit_message_edit(
-                        commit["message"],
-                        commit["file_path"]
-                    )
-                    if new_message:
-                        proposed_commits[index]["message"] = new_message
-                    
-                    # Show updated preview
-                    self.console.show_atomic_commits_preview(proposed_commits)
+            elif action == "edit" and 0 <= index < len(proposed_commits):
+                # Remember where we were
+                current_index = index
+                
+                # Edit specific commit with inline editing
+                new_message = self.console._inline_edit_commit_message(
+                    proposed_commits, index, current_index
+                )
+                if new_message:
+                    proposed_commits[index]["message"] = new_message
+                    self.console.print_success(f"✅ Updated commit message for {proposed_commits[index]['file_path']}")
+                
+                # Continue the loop to show updated table, staying at the same position
     
     async def _create_atomic_commits(self, proposed_commits: List[Dict[str, str]]) -> List[Dict[str, Any]]:
         """Create individual commits for each file."""
