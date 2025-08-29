@@ -203,8 +203,8 @@ Output the commit message directly, for example: feat(scope): description
                     # Step 5: Clean up extra whitespace and normalize
                     content = ' '.join(content.split())
                     
-                    # Step 6: Remove any remaining explanatory text patterns
-                    # Look for patterns like "feat(ai): description. This change..." and keep only the commit part
+                    # Step 6: Remove any remaining explanatory text patterns (IMPROVED)
+                    # Only truncate if there's clear evidence of explanatory text after the commit message
                     if ':' in content:
                         # Find the first colon (should be the commit message separator)
                         colon_index = content.find(':')
@@ -212,11 +212,23 @@ Output the commit message directly, for example: feat(scope): description
                             # Check if there's a description after the colon
                             after_colon = content[colon_index + 1:].strip()
                             if after_colon:
-                                # Keep everything up to the first period after the colon, or the whole thing if no period
-                                period_index = after_colon.find('.')
-                                if period_index > 0:
-                                    # Stop at the first period to avoid explanatory text
-                                    content = content[:colon_index + 1] + after_colon[:period_index]
+                                # Only truncate if we detect clear explanatory patterns
+                                # Look for patterns like ". This change..." or ". The..." or ". It..."
+                                explanatory_patterns = ['. This ', '. The ', '. It ', '. A ', '. An ']
+                                should_truncate = False
+                                truncate_at = -1
+                                
+                                for pattern in explanatory_patterns:
+                                    pattern_index = after_colon.find(pattern)
+                                    if pattern_index > 0:
+                                        should_truncate = True
+                                        truncate_at = pattern_index
+                                        break
+                                
+                                if should_truncate:
+                                    # Truncate at the explanatory text
+                                    content = content[:colon_index + 1] + after_colon[:truncate_at]
+                                # Otherwise, keep the full commit message intact
                     
                     # Step 7: Final cleanup - ensure we have a proper conventional commit format
                     # Remove any lines that don't look like commit messages
