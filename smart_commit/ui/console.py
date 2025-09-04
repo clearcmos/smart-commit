@@ -512,6 +512,50 @@ class SmartCommitConsole:
         """Print info message."""
         self.console.print(f"[info]ℹ {message}[/info]")
     
+    def show_security_scan_results(self, scan_result: Dict[str, Any]) -> None:
+        """Display security scan results."""
+        if not scan_result["scanner_available"]:
+            return
+        
+        if not scan_result["scan_performed"]:
+            self.print_warning("Security scan skipped due to error")
+            return
+        
+        if not scan_result["secrets_found"]:
+            self.print_success("Security scan passed - no secrets detected")
+            return
+        
+        # Show security warning
+        self.console.print()
+        self.console.print("[bold red]🔒 Security Alert: Potential secrets detected![/bold red]")
+        
+        # Create table for findings
+        table = Table(
+            title="Security Scan Results",
+            box=box.ROUNDED,
+            title_style="bold red"
+        )
+        table.add_column("File", style="bold")
+        table.add_column("Line", style="cyan")
+        table.add_column("Detector", style="yellow")
+        table.add_column("Status", style="magenta")
+        table.add_column("Preview", style="dim")
+        
+        for finding in scan_result["findings"]:
+            status = "✅ Verified" if finding["verified"] else "⚠️ Unverified"
+            preview = finding["raw"][:50] + "..." if len(finding["raw"]) > 50 else finding["raw"]
+            
+            table.add_row(
+                finding["file"],
+                str(finding["line"]),
+                finding["detector"],
+                status,
+                preview
+            )
+        
+        self.console.print(table)
+        self.console.print()
+    
     def show_commit_summary(self, commits: List[Dict[str, Any]]) -> None:
         """Show summary of created commits."""
         self.console.print("[bold green]Commits Created Successfully![/bold green]")
