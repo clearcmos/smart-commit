@@ -14,6 +14,7 @@ from .ai_backends.factory import BackendFactory
 from .ai_backends.base import AIBackend
 from .utils.message_extractor import message_extractor
 from .utils.prompts import PromptBuilder
+from .utils.security import SecurityScanner
 from .ui.console import SmartCommitConsole
 
 
@@ -26,6 +27,7 @@ class SmartCommit:
         self.git_repo = GitRepository(repo_path)
         self.console = SmartCommitConsole(self.settings)
         self.ai_backend: Optional[AIBackend] = None
+        self.security_scanner = SecurityScanner()
         self.prompt_builder = PromptBuilder(
             character_limit=self.settings.performance.character_limit,
             optimized_mode=self.settings.performance.macos_local_mode,
@@ -75,6 +77,27 @@ class SmartCommit:
                     self.git_repo.stage_files()
                     await asyncio.sleep(0.5)  # Brief pause for UX
                 self.console.print_success("Staged all changes")
+        
+        # Security scan
+        if not dry_run:
+            with self.console.show_progress_spinner("Running security scan"):
+                staged_files = [change.file_path for change in repo_state.staged_changes]
+                scan_result = await self.security_scanner.scan_before_commit(
+                    self.git_repo.repo_path, 
+                    staged_files
+                )
+                await asyncio.sleep(0.3)  # Brief pause for UX
+            
+            self.console.show_security_scan_results(scan_result)
+            
+            if scan_result["should_block_commit"]:
+                if self.settings.ui.interactive:
+                    if not self.console.confirm_action("Secrets detected! Continue with commit anyway?"):
+                        self.console.print_info("Commit cancelled for security")
+                        return
+                else:
+                    self.console.print_error("Commit blocked - secrets detected")
+                    return
         
         # Generate commit message
         commit_message = await self._generate_traditional_commit_message(repo_state)
@@ -481,6 +504,17 @@ class SmartCommit:
                     
                     # Stage only this file
                     self.git_repo.stage_files([file_path])
+                    
+                    # Security scan for this file
+                    scan_result = await self.security_scanner.scan_before_commit(
+                        self.git_repo.repo_path, 
+                        [file_path]
+                    )
+                    
+                    if scan_result["should_block_commit"]:
+                        if scan_result["secrets_found"]:
+                            self.console.print_warning(f"Secrets detected in {file_path} - skipping commit")
+                            continue
                     
                     # Create commit
                     commit_hash = self.git_repo.commit(message)
