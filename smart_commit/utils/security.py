@@ -6,7 +6,8 @@ import asyncio
 import subprocess
 import shutil
 import json
-from typing import Optional, List, Dict, Any
+import os
+from typing import Optional, List, Dict, Any, Set
 from pathlib import Path
 from loguru import logger
 
@@ -16,6 +17,7 @@ class SecurityScanner:
     
     def __init__(self):
         self.trufflehog_available = shutil.which("trufflehog") is not None
+        self.ignore_patterns = self._load_ignore_patterns()
         
     async def scan_before_commit(self, repo_path: Path, staged_files: Optional[List[str]] = None) -> Dict[str, Any]:
         """
@@ -113,9 +115,36 @@ class SecurityScanner:
             "findings": findings
         }
     
+    def _load_ignore_patterns(self) -> Set[str]:
+        """Load ignore patterns from .truffleignore file."""
+        patterns = set()
+        
+        # Check for .truffleignore in order of preference
+        ignore_files = [
+            Path.home() / ".truffleignore",  # User's home directory
+            Path("/etc/truffleignore"),  # System-wide shared file
+        ]
+        
+        for ignore_file in ignore_files:
+            if ignore_file.exists():
+                try:
+                    with open(ignore_file, 'r') as f:
+                        for line in f:
+                            line = line.strip()
+                            # Skip comments and empty lines
+                            if line and not line.startswith('#'):
+                                patterns.add(line)
+                    logger.debug(f"Loaded {len(patterns)} ignore patterns from {ignore_file}")
+                    break  # Use first found file
+                except Exception as e:
+                    logger.debug(f"Could not load ignore patterns from {ignore_file}: {e}")
+        
+        return patterns
+    
     def _parse_trufflehog_output(self, stdout: str, stderr: str) -> Dict[str, Any]:
-        """Parse TruffleHog JSON output."""
+        """Parse TruffleHog JSON output and filter based on ignore patterns."""
         findings = []
+        filtered_count = 0
         
         if stderr:
             logger.debug(f"TruffleHog stderr: {stderr}")
@@ -126,6 +155,13 @@ class SecurityScanner:
                 
             try:
                 finding = json.loads(line)
+                raw_secret = finding.get("Raw", "")
+                
+                # Check if this finding should be ignored
+                if raw_secret in self.ignore_patterns:
+                    filtered_count += 1
+                    logger.debug(f"Filtered out ignored pattern: {raw_secret[:50]}...")
+                    continue
                 
                 # Extract key information
                 findings.append({
@@ -133,14 +169,18 @@ class SecurityScanner:
                     "file": finding.get("SourceMetadata", {}).get("Data", {}).get("Filesystem", {}).get("file", "unknown"),
                     "line": finding.get("SourceMetadata", {}).get("Data", {}).get("Filesystem", {}).get("line", 0),
                     "verified": finding.get("Verified", False),
-                    "raw": finding.get("Raw", "")[:100] + "..." if len(finding.get("Raw", "")) > 100 else finding.get("Raw", "")
+                    "raw": raw_secret[:100] + "..." if len(raw_secret) > 100 else raw_secret
                 })
                 
             except json.JSONDecodeError:
                 logger.debug(f"Could not parse TruffleHog line: {line}")
+        
+        if filtered_count > 0:
+            logger.info(f"Filtered out {filtered_count} findings based on ignore patterns")
                 
         return {
             "secrets_found": len(findings) > 0,
             "should_block_commit": len(findings) > 0,
-            "findings": findings
+            "findings": findings,
+            "filtered_count": filtered_count
         }
