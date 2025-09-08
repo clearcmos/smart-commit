@@ -389,3 +389,281 @@ Analyze the changes above and generate ONLY the commit message:"""
         """Get detailed analysis of changes."""
         # Simplified implementation
         return f"Changes across {len(changes)} files"
+    
+    def build_branch_name_prompt(self, changes_summary: List[str]) -> str:
+        """Build a prompt for generating branch names based on changes."""
+        prompt = f"""You are an expert developer analyzing code changes to generate a descriptive Git branch name.
+
+## CHANGES BEING MADE
+{chr(10).join(changes_summary[:5])}
+
+## YOUR TASK
+Generate a concise, descriptive branch name that captures the overall purpose of these changes.
+
+## BRANCH NAMING RULES
+- Use format: type/description (e.g., feature/user-auth, fix/login-bug, chore/update-deps)
+- Common types: feature, fix, chore, refactor, docs, test
+- Description should be 2-4 words max, kebab-case
+- Be specific but concise
+- Focus on the main purpose/theme of the changes
+
+## EXAMPLES
+✅ feature/user-authentication
+✅ fix/oauth-token-validation  
+✅ chore/update-dependencies
+✅ refactor/auth-module
+✅ docs/api-documentation
+
+## RESPONSE FORMAT
+Return ONLY the branch name, nothing else. No explanations, no code blocks, just the branch name.
+
+Example: feature/smart-commit-protection"""
+        
+        return prompt
+    
+    def build_intelligent_branch_name_prompt(self, changes_analysis: List[Dict]) -> str:
+        """Build comprehensive prompt for intelligent branch name generation."""
+        
+        # Analyze the changes to extract key information
+        file_count = len(changes_analysis)
+        total_lines_added = sum(change.get('lines_added', 0) for change in changes_analysis)
+        total_lines_removed = sum(change.get('lines_removed', 0) for change in changes_analysis)
+        
+        # Filter primary vs auxiliary files
+        primary_changes = []
+        auxiliary_files = []
+        
+        # Categorize files by type
+        api_files = []
+        cli_files = []
+        doc_files = []
+        config_files = []
+        script_files = []
+        test_files = []
+        other_files = []
+        
+        for change in changes_analysis:
+            path = change['file_path'].lower()
+            
+            # Separate auxiliary files
+            if any(skip in path for skip in ['.md', 'readme', 'changelog', 'license', '.gitignore', 
+                                           'docker', '.yml', '.yaml']):
+                auxiliary_files.append(change)
+                doc_files.append(change) if any(doc in path for doc in ['.md', 'doc', 'readme']) else config_files.append(change)
+            else:
+                primary_changes.append(change)
+                # Categorize primary files
+                if 'api' in path or 'server' in path or 'endpoint' in path:
+                    api_files.append(change)
+                elif 'cli' in path or 'command' in path:
+                    cli_files.append(change)
+                elif 'script' in path or path.startswith('scripts/'):
+                    script_files.append(change)
+                elif 'test' in path or 'spec' in path:
+                    test_files.append(change)
+                else:
+                    other_files.append(change)
+        
+        # Deep code analysis with universal language support
+        code_themes = set()
+        new_features = []
+        bug_fixes = []
+        function_names = []
+        class_names = []
+        domain_terms = []
+        
+        # Universal programming patterns across languages
+        function_patterns = [
+            r'(?:def|function|func|fn)\s+([a-zA-Z_][a-zA-Z0-9_]*)',  # Python, JS, Rust, Go
+            r'([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^)]*\)\s*{',  # C, Java, JS, Go
+            r'([a-zA-Z_][a-zA-Z0-9_]*):?\s*\([^)]*\)\s*=?>',  # TypeScript, Scala
+            r'public\s+\w+\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(',  # Java, C#
+        ]
+        
+        class_patterns = [
+            r'class\s+([A-Z][a-zA-Z0-9_]*)',  # Python, Java, C++, JS
+            r'struct\s+([A-Z][a-zA-Z0-9_]*)',  # Rust, Go, C
+            r'interface\s+([A-Z][a-zA-Z0-9_]*)',  # TypeScript, Java, Go
+            r'type\s+([A-Z][a-zA-Z0-9_]*)',  # Go, TypeScript
+        ]
+        
+        # Focus analysis on primary changes (ignore docs/config)
+        analysis_changes = primary_changes if primary_changes else changes_analysis
+        
+        for change in analysis_changes:
+            diff = change.get('diff_content', '')
+            if not diff:
+                continue
+                
+            # Extract all added lines for deep analysis
+            added_lines = [line for line in diff.split('\n') if line.startswith('+') and not line.startswith('+++')]
+            
+            # Analyze up to 50 lines (much deeper than before)
+            for line in added_lines[:50]:
+                line_content = line[1:].strip()  # Remove the '+' prefix
+                line_lower = line_content.lower()
+                
+                # Extract function names using universal patterns
+                import re
+                for pattern in function_patterns:
+                    matches = re.findall(pattern, line_content)
+                    for match in matches:
+                        if len(match) > 2 and not match.startswith('_'):  # Skip private/test functions
+                            function_names.append(match)
+                
+                # Extract class names
+                for pattern in class_patterns:
+                    matches = re.findall(pattern, line_content)
+                    for match in matches:
+                        if len(match) > 2:
+                            class_names.append(match)
+                
+                # Comprehensive domain analysis
+                domain_keywords = {
+                    'authentication': ['auth', 'login', 'signin', 'signup', 'password', 'token', 'oauth', 'jwt', 'session'],
+                    'user-management': ['user', 'profile', 'account', 'member', 'admin', 'role', 'permission'],
+                    'api-development': ['api', 'endpoint', 'route', 'handler', 'controller', 'middleware', 'request', 'response'],
+                    'database': ['db', 'database', 'sql', 'query', 'table', 'model', 'schema', 'migration'],
+                    'cli-tools': ['cli', 'command', 'arg', 'option', 'flag', 'parser', 'terminal', 'console'],
+                    'web-frontend': ['component', 'react', 'vue', 'html', 'css', 'frontend', 'ui', 'interface'],
+                    'testing': ['test', 'spec', 'mock', 'assert', 'expect', 'unit', 'integration'],
+                    'security': ['security', 'encrypt', 'decrypt', 'hash', 'validate', 'sanitize', 'csrf', 'xss'],
+                    'monitoring': ['log', 'metric', 'monitor', 'analytics', 'track', 'debug', 'error'],
+                    'deployment': ['deploy', 'docker', 'k8s', 'kubernetes', 'ci', 'cd', 'build', 'pipeline'],
+                    'payment': ['payment', 'checkout', 'billing', 'invoice', 'stripe', 'paypal', 'transaction'],
+                    'notification': ['notification', 'email', 'sms', 'push', 'alert', 'message'],
+                    'file-management': ['file', 'upload', 'download', 'storage', 's3', 'blob', 'attachment'],
+                    'search': ['search', 'index', 'elasticsearch', 'solr', 'query', 'filter'],
+                    'cache': ['cache', 'redis', 'memcache', 'session', 'store'],
+                    'integration': ['integration', 'webhook', 'sync', 'import', 'export', 'connector'],
+                    'ai-features': ['ai', 'ml', 'machine learning', 'categorization', 'classification', 'generation', 'smart', 'intelligence'],
+                    'branch-management': ['branch', 'git', 'commit', 'merge', 'checkout', 'protection', 'workflow'],
+                }
+                
+                # Check for domain matches
+                for domain, keywords in domain_keywords.items():
+                    if any(keyword in line_lower for keyword in keywords):
+                        code_themes.add(domain)
+                
+                # Extract specific technical terms for naming
+                tech_terms = re.findall(r'[a-zA-Z][a-zA-Z0-9_]{3,}', line_content)
+                for term in tech_terms:
+                    if (len(term) > 3 and term.lower() not in ['true', 'false', 'null', 'none', 'self', 'this'] 
+                        and not term.startswith('_')):
+                        domain_terms.append(term.lower())
+            
+            # Detect new features and bug fixes
+            if any(pattern in diff.lower() for pattern in ['+ def ', '+def ', '+ class ', '+class ', '+ function', '+function']):
+                new_features.append(f"New code in {change['file_path']}")
+            
+            if any(word in diff.lower() for word in ['fix', 'bug', 'error', 'exception', 'issue', 'resolve']):
+                bug_fixes.append(f"Fix in {change['file_path']}")
+        
+        # Clean and deduplicate extracted information
+        function_names = list(set(function_names))[:10]  # Top 10 unique functions
+        class_names = list(set(class_names))[:10]  # Top 10 unique classes  
+        domain_terms = list(set(domain_terms))[:20]  # Top 20 unique terms
+        code_themes = list(code_themes)
+        
+        prompt = f"""You are an expert developer analyzing code changes to generate an intelligent Git branch name that captures the OVERALL PURPOSE of the work being done.
+
+## CODE CHANGES ANALYSIS
+**Total Files:** {file_count} files ({len(primary_changes)} primary code files, {len(auxiliary_files)} auxiliary files)
+**Scale:** +{total_lines_added} lines, -{total_lines_removed} lines
+
+**PRIMARY CODE FILES (focus on these):**
+"""
+        
+        if api_files:
+            prompt += f"- **API/Server files:** {len(api_files)} files ({', '.join([f['file_path'] for f in api_files[:3]])})\n"
+        if cli_files:
+            prompt += f"- **CLI files:** {len(cli_files)} files ({', '.join([f['file_path'] for f in cli_files[:3]])})\n"
+        if script_files:
+            prompt += f"- **Scripts:** {len(script_files)} files ({', '.join([f['file_path'] for f in script_files[:3]])})\n"
+        if test_files:
+            prompt += f"- **Tests:** {len(test_files)} files ({', '.join([f['file_path'] for f in test_files[:3]])})\n"
+        if other_files:
+            prompt += f"- **Core files:** {len(other_files)} files ({', '.join([f['file_path'] for f in other_files[:3]])})\n"
+            
+        if auxiliary_files:
+            prompt += f"\n**AUXILIARY FILES (ignore for branch naming):** {len(auxiliary_files)} files (docs, config, etc.)\n"
+        
+        if code_themes:
+            prompt += f"\n**🎯 Detected Domains:** {', '.join(code_themes)}\n"
+        
+        if function_names:
+            prompt += f"\n**🔧 New Functions:** {', '.join(function_names[:5])}\n"
+            
+        if class_names:
+            prompt += f"\n**📦 New Classes:** {', '.join(class_names[:5])}\n"
+            
+        if domain_terms:
+            # Show most relevant technical terms
+            relevant_terms = [term for term in domain_terms if len(term) > 4][:8]
+            if relevant_terms:
+                prompt += f"\n**💡 Key Terms:** {', '.join(relevant_terms)}\n"
+        
+        if new_features:
+            prompt += f"\n**✨ New Features Detected:** {len(new_features)} files have new functions/classes\n"
+        
+        if bug_fixes:
+            prompt += f"\n**🐛 Bug Fixes Detected:** {len(bug_fixes)} files contain fix-related changes\n"
+
+        prompt += f"""
+## DETAILED CHANGE ANALYSIS (PRIMARY FILES ONLY)
+"""
+        
+        # Show actual code changes for context - focus on primary files
+        for i, change in enumerate(analysis_changes[:5], 1):
+            prompt += f"""
+**File {i}: {change['file_path']}** ({change['change_type']})
+"""
+            
+            diff = change.get('diff_content', '')
+            if diff:
+                # Extract meaningful snippets from the diff
+                lines = diff.split('\n')
+                added_lines = [line[1:].strip() for line in lines if line.startswith('+') and not line.startswith('+++') and line.strip() != '+']
+                removed_lines = [line[1:].strip() for line in lines if line.startswith('-') and not line.startswith('---') and line.strip() != '-']
+                
+                if added_lines:
+                    prompt += f"  Adding: {' | '.join(added_lines[:3])}\n"
+                if removed_lines:
+                    prompt += f"  Removing: {' | '.join(removed_lines[:3])}\n"
+            
+            if change.get('lines_added', 0) > 0 or change.get('lines_removed', 0) > 0:
+                prompt += f"  Scale: +{change.get('lines_added', 0)}/-{change.get('lines_removed', 0)} lines\n"
+        
+        prompt += """
+## YOUR TASK
+Using the deep code analysis above, determine the SPECIFIC PRIMARY FEATURE being developed. Focus on the primary code files and detected domains - ignore auxiliary files like documentation.
+
+## BRANCH NAMING STRATEGY
+1. **Identify the main domain** from "🎯 Detected Domains" 
+2. **Use specific terms** from "🔧 New Functions", "📦 New Classes", and "💡 Key Terms"
+3. **Focus on the core functionality** being built, not maintenance tasks
+4. **Name the capability/system, not the implementation action**
+
+## NAMING PRINCIPLES
+- ❌ Avoid implementation verbs: "add", "implement", "create", "update"  
+- ✅ Focus on the capability: "authentication-system", "branch-protection"
+- ❌ Avoid redundant context: "for-users", "in-the-app"
+- ✅ Use system-level terms: "system", "engine", "workflow", "integration"
+
+## RESPONSE FORMAT
+Use the pattern: "feat(scope): capability or system name"
+
+GOOD EXAMPLES:
+- feat(ai): smart-categorization-and-title-generation-system
+- feat(auth): jwt-token-validation-and-session-management  
+- feat(cli): user-management-command-interface
+- feat(git): branch-protection-with-intelligent-naming
+
+BAD EXAMPLES:
+- feat(ai): add smart categorization features ❌ (uses "add", says "features")
+- feat(auth): implement JWT validation for users ❌ (uses "implement", adds "for users")
+- feat(git): update branch workflow with AI ❌ (uses "update", too vague)
+
+Return ONLY the branch name."""
+        
+        return prompt

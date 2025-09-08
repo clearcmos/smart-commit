@@ -316,7 +316,7 @@ class SmartCommitConsole:
             import termios, tty
             fd = sys.stdin.fileno()
             termios.tcgetattr(fd)  # Test if we can get terminal attributes
-        except (ImportError, OSError, AttributeError):
+        except (ImportError, OSError, AttributeError, termios.error):
             # Fall back to simplified approval
             return self._simplified_approval(commits)
         
