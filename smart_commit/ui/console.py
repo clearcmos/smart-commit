@@ -611,3 +611,89 @@ class SmartCommitConsole:
         
         self.console.print(Panel(syntax, title="Changes", style="blue"))
         self.console.print()
+    
+    def prompt_branch_protection_choice(self, options: List[str]) -> int:
+        """Prompt user to choose from branch protection options."""
+        from rich.prompt import IntPrompt
+        
+        self.console.print("\n[bold yellow]Choose an option:[/bold yellow]")
+        for i, option in enumerate(options):
+            style = "green" if i == 0 else "blue"
+            self.console.print(f"  [{i}] [{style}]{option}[/{style}]")
+        
+        while True:
+            try:
+                choice = IntPrompt.ask(
+                    "Enter your choice",
+                    default=0,
+                    choices=[str(i) for i in range(len(options))]
+                )
+                return choice
+            except (KeyboardInterrupt, EOFError):
+                return len(options) - 1  # Return cancel option
+    
+    def edit_branch_name(self, suggested_name: str) -> Optional[str]:
+        """Edit branch name with validation using Rich input."""
+        import re
+        
+        self.console.print(f"\n[green]Suggested branch name:[/green] {suggested_name}")
+        
+        while True:
+            try:
+                branch_name = Prompt.ask(
+                    "Edit branch name (or press Enter to use suggestion)",
+                    default=suggested_name
+                )
+                
+                # Validate branch name
+                if not branch_name:
+                    return None
+                
+                # Check for invalid characters
+                if re.search(r'[^\w/.-]', branch_name):
+                    self.console.print("[red]Error:[/red] Branch name contains invalid characters. Use only letters, numbers, hyphens, underscores, slashes, and periods.")
+                    continue
+                
+                # Check for spaces
+                if ' ' in branch_name:
+                    self.console.print("[red]Error:[/red] Branch name cannot contain spaces. Use hyphens instead.")
+                    continue
+                
+                # Check length (Git's actual limit is 255 chars, but keep it reasonable)
+                if len(branch_name) > 100:
+                    self.console.print("[red]Error:[/red] Branch name is too long (max 100 characters for readability).")
+                    continue
+                
+                # Check for valid format
+                if not re.match(r'^[\w.-]+(/[\w.-]+)*$', branch_name):
+                    self.console.print("[red]Error:[/red] Invalid branch name format. Use format: type/description")
+                    continue
+                
+                return branch_name
+                
+            except (KeyboardInterrupt, EOFError):
+                return None
+    
+    def select_existing_branch(self, branches: List[str]) -> Optional[str]:
+        """Select from existing branches with interactive interface."""
+        if not branches:
+            return None
+        
+        self.console.print("\n[bold blue]Available branches:[/bold blue]")
+        
+        for i, branch in enumerate(branches[:10]):  # Limit to 10 most recent
+            self.console.print(f"  [{i}] [cyan]{branch}[/cyan]")
+        
+        if len(branches) > 10:
+            self.console.print(f"  ... and {len(branches) - 10} more branches")
+        
+        while True:
+            try:
+                from rich.prompt import IntPrompt
+                choice = IntPrompt.ask(
+                    "Select branch",
+                    choices=[str(i) for i in range(min(len(branches), 10))]
+                )
+                return branches[choice]
+            except (KeyboardInterrupt, EOFError):
+                return None
