@@ -63,8 +63,12 @@ class GitSettings(BaseModel):
         description="File size threshold (lines) above which diffs are truncated"
     )
     atomic_mode: bool = Field(
-        default=False,
+        default=True,  # Changed to True to make atomic default
         description="Create one commit per modified file"
+    )
+    protected_branches: list[str] = Field(
+        default=["main", "master"],
+        description="Branch names that require protection prompt"
     )
 
 
