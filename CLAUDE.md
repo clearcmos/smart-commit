@@ -1,6 +1,8 @@
-# Smart Commit v2.0.1 - Development Guide
+# Smart Commit v2.1.0 - Development Guide
 
-This document provides context for AI assistants working on the Smart Git Commit Tool v2.0.1 Python rewrite.
+This document provides context for AI assistants working on the Smart Git Commit Tool v2.1.0 Python rewrite.
+
+> **v2.1.0 Update**: Atomic commits are now default, branch protection for main/master, AI-generated branch names, and improved workflow safety.
 
 > **v2.0.1 Update**: Major validation improvements, 100% success rate for atomic commits, and enhanced AI response handling.
 
@@ -51,7 +53,9 @@ smart_commit/
 - **Framework**: Typer with Rich markup support
 - **Pattern**: Callback-based with default action
 - **Features**: 
-  - Default action is commit (no subcommand needed)
+  - Default action is atomic commits (changed in v2.1.0)
+  - Branch protection for main/master branches
+  - AI-generated branch names with interactive editing
   - Global options apply to default action
   - Subcommands for configuration and testing
   - Automatic help generation with examples
@@ -77,7 +81,9 @@ def config(...):
 - **Responsibilities**:
   - Initialize and coordinate all components
   - Manage application lifecycle
-  - Handle both traditional and atomic commit workflows
+  - Handle both traditional and atomic commit workflows (atomic is default)
+  - Branch protection and AI-powered branch name generation
+  - Interactive branch selection and creation
   - Error handling and user feedback
 
 #### Key Methods
@@ -85,11 +91,17 @@ def config(...):
 async def initialize() -> None:
     """Initialize AI backend and validate setup."""
 
-async def run_traditional_commit(dry_run: bool) -> None:
-    """Single commit workflow."""
+async def run_traditional_commit(dry_run: bool, force_branch: bool, new_branch_name: str, switch_to_branch: str) -> None:
+    """Single commit workflow with branch protection."""
 
-async def run_atomic_commits(dry_run: bool) -> None:
-    """Atomic commits workflow (one per file)."""
+async def run_atomic_commits(dry_run: bool, force_branch: bool, new_branch_name: str, switch_to_branch: str) -> None:
+    """Atomic commits workflow (one per file) - now default."""
+
+async def _check_branch_protection(new_branch_name: str, switch_to_branch: str) -> str:
+    """Check branch protection and handle accordingly."""
+
+async def _generate_branch_name(file_changes: List[FileChange]) -> str:
+    """Generate AI-powered branch name based on changes."""
 ```
 
 ### 3. Configuration System (`config/settings.py`)
@@ -114,6 +126,8 @@ class Settings(BaseSettings):
 - `SC_AI__API_URL` → `settings.ai.api_url`
 - `SC_AI__MODEL` → `settings.ai.model`
 - `SC_AI__BACKEND_TYPE` → `settings.ai.backend_type`
+- `SC_GIT__PROTECTED_BRANCHES` → `settings.git.protected_branches`
+- `SC_GIT__ATOMIC_MODE` → `settings.git.atomic_mode` (default: true)
 - Legacy: `OLLAMA_API_URL` → automatically migrated
 
 ### 4. AI Backend System (`ai_backends/`)
@@ -227,24 +241,29 @@ def show_progress_bar(self, total: int, description: str):
 
 ## Workflow Patterns
 
-### Traditional Commit Workflow
+### Atomic Commits Workflow (Default)
 1. **Initialize**: Load settings, create AI backend, validate Git repo
-2. **Analyze**: Get repository state, file changes, recent commits
-3. **Stage**: Auto-stage files if configured
-4. **Generate**: Create commit message using AI backend
-5. **Preview**: Show message with Rich formatting
-6. **Confirm**: Interactive approval (if enabled)
-7. **Commit**: Create Git commit
-8. **Push**: Push to remote (if configured)
+2. **Branch Protection**: Check if on protected branch (main/master)
+   - If protected: Prompt user to create new branch, switch branch, or force commit
+   - Generate AI-powered branch name if creating new branch
+   - Interactive branch name editing with validation
+3. **Analyze**: Get all changed files individually  
+4. **Generate**: Create commit message for each file in parallel
+5. **Preview**: Show all proposed commits in table format
+6. **Approve**: Interactive workflow with editing capability
+7. **Commit**: Create individual commits sequentially
+8. **Push**: Push all commits together
 
-### Atomic Commits Workflow
-1. **Initialize**: Same as traditional
-2. **Analyze**: Get all changed files individually
-3. **Generate**: Create commit message for each file in parallel
-4. **Preview**: Show all proposed commits in table format
-5. **Approve**: Interactive workflow with editing capability
-6. **Commit**: Create individual commits sequentially
-7. **Push**: Push all commits together
+### Traditional Commit Workflow (Non-Atomic)
+1. **Initialize**: Load settings, create AI backend, validate Git repo
+2. **Branch Protection**: Same as atomic workflow
+3. **Analyze**: Get repository state, file changes, recent commits
+4. **Stage**: Auto-stage files if configured
+5. **Generate**: Create single commit message using AI backend
+6. **Preview**: Show message with Rich formatting
+7. **Confirm**: Interactive approval (if enabled)
+8. **Commit**: Create Git commit
+9. **Push**: Push to remote (if configured)
 
 ### Error Handling Strategy
 - **Custom Exceptions**: `SmartCommitError` for application errors

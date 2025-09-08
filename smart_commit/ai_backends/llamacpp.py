@@ -577,3 +577,62 @@ Output the commit message directly, for example: feat(scope): description
             logger.error(f"Connection test failed: {e}")
         
         return test_results
+    
+    async def call_api_raw(self, prompt: str) -> AIResponse:
+        """Call the API without commit message validation (for branch names, etc.)."""
+        import time
+        
+        start_time = time.time()
+        
+        self._log_request(prompt)
+        
+        # Format prompt for ChatML
+        format_start = time.time()
+        formatted_prompt = self._format_chatml_prompt(prompt)
+        format_time = time.time() - format_start
+        
+        payload = {
+            "prompt": formatted_prompt,
+            "max_tokens": 300,
+            "temperature": 0.2,
+            "top_k": 20,
+            "top_p": 0.1,
+            "min_p": 0,
+            "stop": ["<|im_end|>", "\n\n", "Example:", "Note:"],
+            "stream": False
+        }
+        
+        try:
+            timeout = aiohttp.ClientTimeout(total=self.timeout)
+            
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                api_start = time.time()
+                async with session.post(
+                    f"{self.api_url}/completion",
+                    json=payload,
+                    headers={"Content-Type": "application/json"}
+                ) as response:
+                    response.raise_for_status()
+                    data = await response.json()
+                    api_time = time.time() - api_start
+                    
+                    content = data.get("content", "").strip()
+                    
+                    # Basic validation only - no commit message specific checks
+                    if not content or len(content) < 3:
+                        raise ValueError(f"Response too short: '{content}'")
+                    
+                    total_time = time.time() - start_time
+                    
+                    return AIResponse(
+                        content=content,
+                        model=self.model,
+                        response_time=total_time,
+                        backend_type=self.backend_type,
+                        raw_response=data
+                    )
+                    
+        except Exception as e:
+            total_time = time.time() - start_time
+            logger.error(f"llama.cpp API call failed after {total_time:.2f}s: {e}")
+            raise
