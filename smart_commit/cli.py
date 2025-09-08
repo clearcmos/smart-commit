@@ -59,13 +59,25 @@ def main_callback(
         False, "--dry-run", "-n", 
         help="Preview commit message without creating commit"
     ),
-    atomic: bool = typer.Option(
-        False, "--atomic", "-a",
-        help="Create one commit per modified file"
+    non_atomic: bool = typer.Option(
+        False, "--non-atomic", "-na",
+        help="Create single commit for all changes (instead of default atomic commits)"
     ),
     no_push: bool = typer.Option(
         False, "--no-push", "-np",
         help="Create commits but don't push to remote"
+    ),
+    new_branch: bool = typer.Option(
+        False, "--new-branch", "-nb",
+        help="Create new branch with AI-generated name and commit there"
+    ),
+    switch_branch: Optional[str] = typer.Option(
+        None, "--switch-branch", "-sb", 
+        help="Switch to existing branch before committing"
+    ),
+    force_main: bool = typer.Option(
+        False, "--force-main", "-fm",
+        help="Force commit to main branch without protection prompt"
     ),
     config_file: Optional[Path] = typer.Option(
         None, "--config", "-c",
@@ -89,24 +101,30 @@ def main_callback(
     )
 ):
     """
-    AI-powered Git commit message generator with dual backend support.
+    AI-powered Git commit message generator with atomic commits by default.
     
     [bold blue]Examples:[/bold blue]
     
-    [green]smart-commit[/green]                           # Standard commit workflow
-    [green]smart-commit --dry-run[/green]                 # Preview without committing  
-    [green]smart-commit --atomic[/green]                  # One commit per file
-    [green]smart-commit --atomic --dry-run[/green]        # Preview atomic commits
-    [green]smart-commit --atomic --no-push[/green]        # Create commits without pushing
-    [green]smart-commit --atomic --verbose[/green]        # Verbose logging
-    [green]smart-commit --atomic --debug[/green]          # Full debug logging
+    [green]smart-commit[/green]                           # Atomic commits (default)
+    [green]smart-commit --dry-run[/green]                 # Preview atomic commits  
+    [green]smart-commit --non-atomic[/green]              # Single commit for all changes
+    [green]smart-commit --new-branch[/green]              # Create AI-generated branch and commit there
+    [green]smart-commit --switch-branch develop[/green]   # Switch to branch and commit
+    [green]smart-commit --force-main[/green]              # Force commit to main (bypass protection)
+    [green]smart-commit --no-push[/green]                 # Create commits without pushing
+    [green]smart-commit --verbose[/green]                 # Verbose logging
+    [green]smart-commit --debug[/green]                   # Full debug logging
     [green]smart-commit config --show[/green]             # Show configuration
     [green]smart-commit test[/green]                      # Test AI backend
-    [green]smart-commit cache-stats[/green]               # Show cache performance
-    [green]smart-commit clear-cache[/green]               # Clear scope cache
     
-    [bold blue]Flags:[/bold blue]
-    [green]--no-push[/green]                              # Create commits but don't push to remote
+    [bold blue]Branch Management:[/bold blue]
+    [green]--new-branch[/green]                           # Create AI-generated branch and commit there
+    [green]--switch-branch NAME[/green]                   # Switch to existing branch first
+    [green]--force-main[/green]                           # Bypass main branch protection
+    
+    [bold blue]Commit Modes:[/bold blue]
+    [green](default)[/green]                              # Atomic commits (one per file)
+    [green]--non-atomic[/green]                           # Single commit for all changes
     """
     if version:
         from . import __version__
@@ -115,7 +133,12 @@ def main_callback(
     
     # If no subcommand was called, run the default commit workflow
     if ctx.invoked_subcommand is None:
-        asyncio.run(_run_commit(dry_run, atomic, no_push, config_file, verbose, debug, repo_path))
+        # Atomic is now default (inverted from old logic)
+        atomic_mode = not non_atomic
+        asyncio.run(_run_commit(
+            dry_run, atomic_mode, no_push, new_branch, switch_branch, force_main,
+            config_file, verbose, debug, repo_path
+        ))
 
 
 @app.command()
@@ -239,6 +262,9 @@ async def _run_commit(
     dry_run: bool, 
     atomic: bool, 
     no_push: bool,
+    new_branch: bool,
+    switch_branch: Optional[str],
+    force_main: bool,
     config_file: Optional[Path],
     verbose: bool,
     debug: bool,
@@ -280,9 +306,19 @@ async def _run_commit(
         
         # Run appropriate workflow
         if atomic:
-            await smart_commit.run_atomic_commits(dry_run)
+            await smart_commit.run_atomic_commits(
+                dry_run=dry_run, 
+                force_branch=force_main,
+                new_branch=new_branch,
+                switch_to_branch=switch_branch
+            )
         else:
-            await smart_commit.run_traditional_commit(dry_run)
+            await smart_commit.run_traditional_commit(
+                dry_run=dry_run,
+                force_branch=force_main, 
+                new_branch=new_branch,
+                switch_to_branch=switch_branch
+            )
             
     except SmartCommitError as e:
         console.print(f"[red]Error:[/red] {e}")
