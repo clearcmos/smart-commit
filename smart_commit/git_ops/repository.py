@@ -384,6 +384,26 @@ class GitRepository:
             logger.warning(f"Failed to get recent commits: {e}")
         
         return commits
+    
+    def create_and_switch_branch(self, branch_name: str) -> None:
+        """Create a new branch and switch to it."""
+        try:
+            # Create and checkout new branch
+            new_branch = self.repo.create_head(branch_name)
+            new_branch.checkout()
+            logger.info(f"Created and switched to branch '{branch_name}'")
+        except GitCommandError as e:
+            raise GitRepositoryError(f"Failed to create branch '{branch_name}': {e}")
+    
+    def switch_branch(self, branch_name: str) -> None:
+        """Switch to an existing branch."""
+        try:
+            # Get the branch reference and checkout
+            branch = self.repo.heads[branch_name]
+            branch.checkout()
+            logger.info(f"Switched to branch '{branch_name}'")
+        except (GitCommandError, IndexError) as e:
+            raise GitRepositoryError(f"Failed to switch to branch '{branch_name}': {e}")
 
 
 class GitRepositoryError(Exception):
