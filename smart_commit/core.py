@@ -55,9 +55,16 @@ class SmartCommit:
         if not await self.ai_backend.health_check():
             raise SmartCommitError(f"AI backend health check failed. Check your {self.ai_backend.backend_type} server.")
     
-    async def run_traditional_commit(self, dry_run: bool = False) -> None:
+    async def run_traditional_commit(self, dry_run: bool = False, force_branch: bool = False, new_branch: bool = False, switch_to_branch: Optional[str] = None) -> None:
         """Run traditional single commit workflow."""
         logger.info(f"Running traditional commit workflow (dry_run={dry_run})")
+        
+        # Check branch protection first
+        if not force_branch and not dry_run:
+            branch_action = await self._check_branch_protection(new_branch, switch_to_branch)
+            if branch_action == "cancel":
+                self.console.print_info("Commit cancelled")
+                return
         
         # Get repository state
         repo_state = self.git_repo.get_repository_state(self.settings.git.max_diff_lines)
@@ -130,9 +137,16 @@ class SmartCommit:
         if self.settings.git.auto_push:
             await self._push_commits()
     
-    async def run_atomic_commits(self, dry_run: bool = False) -> None:
+    async def run_atomic_commits(self, dry_run: bool = False, force_branch: bool = False, new_branch: bool = False, switch_to_branch: Optional[str] = None) -> None:
         """Run atomic commits workflow (one commit per file)."""
         logger.info(f"Running atomic commits workflow (dry_run={dry_run})")
+        
+        # Check branch protection first
+        if not force_branch and not dry_run:
+            branch_action = await self._check_branch_protection(new_branch, switch_to_branch)
+            if branch_action == "cancel":
+                self.console.print_info("Atomic commits cancelled")
+                return
         
         # Get repository state
         repo_state = self.git_repo.get_repository_state(self.settings.git.max_diff_lines)
@@ -729,6 +743,261 @@ class SmartCommit:
         except Exception as e:
             logger.debug(f"Could not enhance new file context for {file_path}: {e}")
             return "new file addition"
+    
+    async def _check_branch_protection(self, create_new_branch: bool = False, switch_to_branch: Optional[str] = None) -> str:
+        """Check if current branch is protected and handle accordingly."""
+        current_branch = self.git_repo.repo.active_branch.name
+        
+        # Handle explicit branch operations first
+        if create_new_branch:
+            # Generate AI branch name and create branch
+            repo_state = self.git_repo.get_repository_state(self.settings.git.max_diff_lines)
+            suggested_name = await self._generate_branch_name(repo_state.all_changes)
+            
+            if self.settings.ui.interactive:
+                validated_name = self.console.edit_branch_name(suggested_name)
+                if not validated_name:
+                    return "cancel"
+                return await self._create_and_switch_to_new_branch(validated_name)
+            else:
+                return await self._create_and_switch_to_new_branch(suggested_name)
+        
+        if switch_to_branch:
+            return await self._switch_to_existing_branch(switch_to_branch)
+        
+        # Check if current branch is protected
+        protected_branches = self.settings.git.protected_branches
+        if current_branch in protected_branches:
+            return await self._handle_protected_branch(current_branch)
+        
+        # Current branch is not protected, continue normally
+        return "continue"
+    
+    async def _handle_protected_branch(self, branch_name: str) -> str:
+        """Handle when user is on a protected branch."""
+        repo_state = self.git_repo.get_repository_state(self.settings.git.max_diff_lines)
+        
+        self.console.print_warning(f"⚠️  You're about to commit to protected branch '{branch_name}'")
+        
+        if not self.settings.ui.interactive:
+            # Non-interactive mode: create new branch automatically
+            suggested_name = await self._generate_branch_name(repo_state.all_changes)
+            return await self._create_and_switch_to_new_branch(suggested_name)
+        
+        # Interactive mode: show options
+        options = [
+            "Create new branch and commit there (recommended)",
+            "Switch to existing branch",
+            f"Commit to {branch_name} anyway",
+            "Cancel"
+        ]
+        
+        choice = self.console.prompt_branch_protection_choice(options)
+        
+        if choice == 0:  # Create new branch
+            suggested_name = await self._generate_branch_name(repo_state.all_changes)
+            validated_name = self.console.edit_branch_name(suggested_name)
+            if not validated_name:
+                return "cancel"
+            return await self._create_and_switch_to_new_branch(validated_name)
+        
+        elif choice == 1:  # Switch to existing branch
+            branches = self._get_available_branches()
+            if not branches:
+                self.console.print_warning("No other branches available")
+                return "cancel"
+            selected_branch = self.console.select_existing_branch(branches)
+            if not selected_branch:
+                return "cancel"
+            return await self._switch_to_existing_branch(selected_branch)
+        
+        elif choice == 2:  # Force commit to protected branch
+            return "continue"
+        
+        else:  # Cancel
+            return "cancel"
+    
+    async def _generate_branch_name(self, file_changes: List[FileChange]) -> str:
+        """Generate a branch name based on the changes being made."""
+        if not file_changes:
+            return "feature/new-changes"
+        
+        try:
+            # Create detailed analysis of all changes for intelligent branch naming
+            changes_analysis = []
+            for change in file_changes[:7]:  # Analyze up to 7 files for context
+                # Extract key information from the actual code changes
+                analysis = {
+                    'file_path': change.file_path,
+                    'change_type': change.change_type,
+                    'diff_content': change.diff_content,
+                    'lines_added': change.lines_added,
+                    'lines_removed': change.lines_removed
+                }
+                changes_analysis.append(analysis)
+            
+            logger.info(f"🔍 Generating branch name for {len(changes_analysis)} file changes with cross-file analysis")
+            
+            # Build enhanced prompt for branch name generation
+            prompt = self.prompt_builder.build_intelligent_branch_name_prompt(changes_analysis)
+            logger.info(f"📝 Branch name prompt length: {len(prompt)} chars")
+            
+            # Use raw API call to avoid commit message validation
+            if hasattr(self.ai_backend, 'call_api_raw'):
+                logger.info("🤖 Using call_api_raw for branch name generation")
+                response = await self.ai_backend.call_api_raw(prompt)
+            else:
+                logger.info("🤖 Using regular call_api for branch name generation")
+                response = await self.ai_backend.call_api(prompt)
+            
+            logger.info(f"✅ AI response for branch name: '{response.content}'")
+            
+            # Extract branch name from response (no validation needed for branch names)
+            branch_name = self._extract_branch_name(response.content)
+            sanitized_name = self._sanitize_branch_name(branch_name)
+            logger.info(f"🌿 Final branch name: '{sanitized_name}'")
+            return sanitized_name
+            
+        except Exception as e:
+            logger.warning(f"Failed to generate AI branch name: {e}")
+            # Fallback to simple name based on first file
+            first_file = file_changes[0].file_path
+            scope = first_file.split('/')[0] if '/' in first_file else 'update'
+            return f"feature/{scope}-changes"
+    
+    def _extract_branch_name(self, ai_response: str) -> str:
+        """Extract branch name from AI response."""
+        # Look for common patterns in AI responses
+        import re
+        
+        # Handle the format we're asking for: "feat(scope): description"
+        ai_response_clean = ai_response.strip()
+        
+        # If it's in the format "feat(scope): description", convert to "feat/scope-description"
+        if ':' in ai_response_clean and '(' in ai_response_clean and ')' in ai_response_clean:
+            # Parse "feat(scope): description" format
+            match = re.match(r'(\w+)\(([^)]+)\):\s*(.+)', ai_response_clean)
+            if match:
+                type_part = match.group(1)  # feat
+                scope_part = match.group(2)  # scope  
+                desc_part = match.group(3)   # description
+                
+                # Clean up description for branch naming
+                desc_clean = re.sub(r'[^\w\s-]', '', desc_part)  # Remove special chars
+                desc_clean = re.sub(r'\s+', '-', desc_clean.strip())  # Replace spaces with dashes
+                desc_clean = re.sub(r'-+', '-', desc_clean)  # Remove multiple dashes
+                desc_clean = desc_clean.strip('-')  # Remove leading/trailing dashes
+                
+                return f"{type_part}/{scope_part}-{desc_clean}"
+        
+        # Fallback: if it looks like "feat/something: description", convert to "feat/something-description"  
+        elif ':' in ai_response_clean:
+            parts = ai_response_clean.split(':', 1)  # Split on first colon only
+            prefix = parts[0].strip()
+            suffix = parts[1].strip()
+            
+            if '/' in prefix and len(prefix.split('/')) == 2:
+                # Clean up the suffix to make it branch-name friendly
+                suffix_clean = re.sub(r'[^\w\s-]', '', suffix)  # Remove special chars
+                suffix_clean = re.sub(r'\s+', '-', suffix_clean.strip())  # Replace spaces with dashes
+                suffix_clean = re.sub(r'-+', '-', suffix_clean)  # Remove multiple dashes
+                suffix_clean = suffix_clean.strip('-')  # Remove leading/trailing dashes
+                
+                if suffix_clean:
+                    return f"{prefix}-{suffix_clean}"
+                else:
+                    return prefix
+        
+        # Try to find branch name in various formats  
+        patterns = [
+            r'branch[\s\-]*name[:\s]*[`"\']?([\w\-/]+)[`"\']?',
+            r'[`"\']?([\w\-]+/[\w\-]+)[`"\']?',
+            r'^([\w\-]+/[\w\-]+)',
+            r'([\w\-]+/[\w\-]+)',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, ai_response, re.IGNORECASE)
+            if match:
+                return match.group(1)
+        
+        # If no pattern matches, use the first line cleaned up
+        first_line = ai_response.split('\n')[0].strip()
+        return self._sanitize_branch_name(first_line)
+    
+    def _sanitize_branch_name(self, name: str) -> str:
+        """Sanitize branch name to follow Git branch naming rules."""
+        import re
+        
+        # Remove invalid characters and replace with dashes
+        name = re.sub(r'[^\w/.-]', '-', name)
+        
+        # Remove multiple consecutive dashes
+        name = re.sub(r'-+', '-', name)
+        
+        # Remove leading/trailing dashes and slashes
+        name = name.strip('-/.')
+        
+        # Fix common AI format issues - ensure proper type/description format
+        if '-' in name and '/' not in name:
+            # AI returned something like "feat-description" - fix to "feat/description"
+            parts = name.split('-', 1)  # Split on first dash only
+            if parts[0] in ['feat', 'fix', 'chore', 'docs', 'refactor', 'test']:
+                name = f"{parts[0]}/{parts[1]}"
+        
+        # Ensure it starts with a valid prefix if it doesn't have one
+        if '/' not in name and not any(name.startswith(prefix) for prefix in ['feat', 'fix', 'chore', 'docs', 'refactor', 'test']):
+            name = f"feature/{name}"
+        
+        # Ensure it's not empty
+        if not name or name == "feature/" or name.endswith('/'):
+            name = "feature/new-changes"
+        
+        # DON'T limit length - let git handle reasonable limits
+        # Git supports branch names up to 255 characters, which is plenty
+        # Better to have a descriptive name than a truncated unclear one
+        
+        return name
+    
+    async def _create_and_switch_to_new_branch(self, branch_name: str) -> str:
+        """Create and switch to a new branch."""
+        try:
+            self.git_repo.create_and_switch_branch(branch_name)
+            self.console.print_success(f"✅ Created and switched to new branch '{branch_name}'")
+            return "continue"
+        except Exception as e:
+            self.console.print_error(f"Failed to create branch '{branch_name}': {e}")
+            return "cancel"
+    
+    async def _switch_to_existing_branch(self, branch_name: str) -> str:
+        """Switch to an existing branch."""
+        try:
+            self.git_repo.switch_branch(branch_name)
+            self.console.print_success(f"✅ Switched to branch '{branch_name}'")
+            return "continue"
+        except Exception as e:
+            self.console.print_error(f"Failed to switch to branch '{branch_name}': {e}")
+            return "cancel"
+    
+    def _get_available_branches(self) -> List[str]:
+        """Get list of available branches sorted by most recent activity."""
+        try:
+            branches = []
+            for branch in self.git_repo.repo.branches:
+                if branch.name != self.git_repo.repo.active_branch.name:
+                    try:
+                        last_commit_date = branch.commit.committed_date
+                        branches.append((branch.name, last_commit_date))
+                    except:
+                        branches.append((branch.name, 0))
+            
+            # Sort by most recent commit date
+            branches.sort(key=lambda x: x[1], reverse=True)
+            return [branch[0] for branch in branches]
+        
+        except Exception as e:
+            logger.warning(f"Failed to get available branches: {e}")
+            return []
 
 
 class SmartCommitError(Exception):
