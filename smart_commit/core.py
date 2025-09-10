@@ -88,7 +88,7 @@ class SmartCommit:
         # Security scan
         if not dry_run:
             with self.console.show_progress_spinner("Running security scan"):
-                staged_files = [change.file_path for change in repo_state.staged_changes]
+                staged_files = [change.file_path for change in repo_state.staged_files]
                 scan_result = await self.security_scanner.scan_before_commit(
                     self.git_repo.repo_path, 
                     staged_files
