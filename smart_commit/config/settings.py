@@ -18,7 +18,7 @@ class AISettings(BaseModel):
         description="AI server endpoint"
     )
     model: str = Field(
-        default="qwen3:8b",
+        default="qwen2.5-coder:7b-instruct",
         description="AI model to use"
     )
     backend_type: Literal["ollama", "llamacpp", "auto"] = Field(
