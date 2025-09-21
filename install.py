@@ -480,9 +480,9 @@ class SmartCommitInstaller:
         if platform_type == "macos":
             print("1) Local Ollama (install and run locally) [Recommended]")
         elif platform_type == "linux":
-            print("1) Local AI (detect existing llama.cpp installation)")
+            print("1) Local Ollama (detect existing installation) [Recommended]")
         
-        print("2) Remote AI server (Windows Ollama or Linux llama.cpp)")
+        print("2) Remote AI server (Ollama or llama.cpp)")
         
         if existing_config:
             print("3) Keep current configuration")
@@ -507,7 +507,7 @@ class SmartCommitInstaller:
             if platform_type == "macos":
                 return self._setup_local_macos_ollama()
             elif platform_type == "linux":
-                return self._setup_local_linux_llamacpp()
+                return self._setup_local_linux_ollama()
         elif choice_num == 2:
             return self._setup_remote_server()
         elif choice_num == 3 and existing_config:
@@ -537,7 +537,7 @@ class SmartCommitInstaller:
                 sys.exit(1)
         
         # Download model
-        model = "qwen3:8b"
+        model = "qwen2.5-coder:7b-instruct"
         if not self.download_model(model):
             print("❌ Failed to download model")
             sys.exit(1)
@@ -557,44 +557,33 @@ class SmartCommitInstaller:
         
         return config
     
-    def _setup_local_linux_llamacpp(self) -> Optional[Dict[str, Any]]:
-        """Setup local llama.cpp on Linux (detect existing)."""
-        print("\n🐧 Setting up Local AI on Linux...")
-        print("\n⚠️  WARNING: Linux local deployment is partially implemented")
-        print("   This will detect and use your existing llama.cpp installation")
-        print("   Full automated deployment is not yet available for Linux\n")
+    def _setup_local_linux_ollama(self) -> Optional[Dict[str, Any]]:
+        """Setup local Ollama on Linux (detect existing)."""
+        print("\n🐧 Setting up Local Ollama on Linux...")
         
-        # Probe for llama.cpp
-        port = self.check_llamacpp_running()
-        if port:
-            print(f"✅ Found llama.cpp server running on port {port}")
-            
-            model = self.get_llamacpp_model(port)
-            if model and model != "null":
-                print(f"✅ Detected model: {model}")
-            else:
-                model = "auto-detected"
-                print("⚠️  Could not detect specific model, will use auto-detection")
+        # Check if Ollama is running
+        if self.check_ollama_running():
+            print("✅ Found Ollama running on port 11434")
             
             config = {
-                "ai_api_url": f"http://localhost:{port}",
-                "ai_model": model,
-                "ai_backend_type": "llamacpp"
+                "ai_api_url": "http://localhost:11434",
+                "ai_model": "qwen2.5-coder:7b-instruct",
+                "ai_backend_type": "ollama"
             }
             
-            print(f"\n✅ Local Linux llama.cpp setup complete!")
+            print(f"\n✅ Local Linux Ollama setup complete!")
             print(f"   API URL: {config['ai_api_url']}")
             print(f"   Model: {config['ai_model']}")
             print(f"   Backend: {config['ai_backend_type']}")
             
             return config
         else:
-            print("❌ No existing llama.cpp installation detected")
-            print("\nTo set up llama.cpp locally, you would need to:")
-            print("1. Install llama.cpp from https://github.com/ggerganov/llama.cpp")
-            print("2. Download a compatible model (e.g., Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf)")
-            print("3. Start llama-server with appropriate parameters")
-            print("\n💡 Please choose option 2 (Remote AI server) instead.")
+            print("❌ Ollama not running on localhost:11434")
+            print("\nTo start Ollama:")
+            print("1. If using NixOS: systemctl start ollama.service")
+            print("2. If installed manually: ollama serve")
+            print("3. Download required model: ollama pull qwen2.5-coder:7b-instruct")
+            print("\n💡 Please start Ollama and try again, or choose option 2 (Remote AI server).")
             return None
     
     def _setup_remote_server(self) -> Optional[Dict[str, Any]]:
@@ -632,7 +621,7 @@ class SmartCommitInstaller:
                 print("❌ Invalid IP address format. Please try again.")
         
         api_url = f"http://{ip}:11434"
-        model = "qwen3:8b"
+        model = "qwen2.5-coder:7b-instruct"
         
         print(f"\n🔍 Testing connection to {api_url}...")
         if self.check_url_reachable(f"{api_url}/api/tags", 10):
@@ -759,8 +748,8 @@ class SmartCommitInstaller:
         config_data = {
             "ai": {
                 "api_url": "http://localhost:11434",
-                "model": "qwen3:8b", 
-                "backend_type": "auto",
+                "model": "qwen2.5-coder:7b-instruct", 
+                "backend_type": "ollama",
                 "timeout": 120,
                 "max_retries": 3
             },
@@ -1032,8 +1021,8 @@ exec "{python_exe}" -m smart_commit.cli "$@"
             print("   You can reconfigure later using: smart-commit config")
             legacy_config = {
                 "ai_api_url": "http://localhost:11434",
-                "ai_model": "qwen3:8b",
-                "ai_backend_type": "auto"
+                "ai_model": "qwen2.5-coder:7b-instruct",
+                "ai_backend_type": "ollama"
             }
         else:
             print(f"✅ Found existing configuration: {list(legacy_config.keys())}")
