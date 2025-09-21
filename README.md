@@ -5,7 +5,7 @@ AI-powered Git commit message generator that analyzes your git changes and creat
 ## Features
 
 - Generates conventional commit messages (e.g., `feat(auth): add JWT validation`)
-- Supports Ollama and llama.cpp backends
+- Supports Ollama backend (optimized for local AI)
 - Atomic commits mode (separate commit per file)
 - Auto-staging and auto-push options
 - Interactive preview and editing
@@ -27,7 +27,7 @@ pip install -e .
 pipx install .
 ```
 
-**Requirements**: Python 3.9+, Git, and either Ollama or llama.cpp server running.
+**Requirements**: Python 3.9+, Git, and Ollama server running locally.
 
 ## Usage
 
@@ -56,7 +56,7 @@ Configuration file: `~/.config/smart-commit/config.json`
 {
   "ai": {
     "api_url": "http://localhost:11434",
-    "model": "qwen3:8b",
+    "model": "qwen2.5-coder:7b-instruct",
     "backend_type": "auto",
     "timeout": 120,
     "max_retries": 3
@@ -77,31 +77,24 @@ Configuration file: `~/.config/smart-commit/config.json`
 
 ### Environment Variables
 ```bash
-export SC_AI__API_URL="http://localhost:8080"
-export SC_AI__MODEL="qwen2.5-coder:7b"
-export SC_AI__BACKEND_TYPE="llamacpp"
+export SC_AI__API_URL="http://localhost:11434"
+export SC_AI__MODEL="qwen2.5-coder:7b-instruct"
+export SC_AI__BACKEND_TYPE="ollama"
 export SC_GIT__AUTO_STAGE="true"
 export SC_UI__LOG_LEVEL="DEBUG"
 ```
 
-### Configure for Ollama
+### Configure for Ollama (Default)
 
 ```bash
 smart-commit config --backend ollama --url http://localhost:11434 --save
 ```
 
-### Configure for llama.cpp
+## AI Backend
 
-```bash
-smart-commit config --backend llamacpp --url http://localhost:8080 --save
-```
+**Ollama**: Uses `/api/generate` endpoint for modern, efficient local AI inference.
 
-## AI Backends
-
-**Ollama**: Uses `/api/generate` endpoint
-**llama.cpp**: Uses `/v1/completions` endpoint (OpenAI-compatible)
-
-The tool automatically detects which backend is running if `backend_type` is set to "auto".
+The tool is optimized for Ollama and will auto-detect the best available model if `backend_type` is set to "auto".
 
 ## Atomic Commits
 
@@ -120,9 +113,8 @@ Shows a preview table of proposed commits, allows editing individual messages, t
 # Test backend health
 smart-commit test --all
 
-# Check if services are running
-curl http://localhost:11434/api/tags    # Ollama
-curl http://localhost:8080/health       # llama.cpp
+# Check if Ollama is running
+curl http://localhost:11434/api/tags
 
 # Enable debug logging
 export SC_UI__LOG_LEVEL="DEBUG"
