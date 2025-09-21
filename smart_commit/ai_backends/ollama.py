@@ -89,9 +89,11 @@ class OllamaBackend(AIBackend):
         """Auto-detect the best available model."""
         models = await self.list_models()
         
-        # Preferred model order
+        # Preferred model order (updated for Ollama migration)
         preferred = [
-            "qwen3:8b", "qwen3:4b", "qwen2.5-coder:7b", 
+            "qwen2.5-coder:7b-instruct", "qwen2.5-coder:7b", 
+            "qwen2.5:7b-instruct", "qwen2.5:7b",
+            "qwen3:8b", "qwen3:4b",
             "llama3.2:8b", "llama3.2:3b", "llama3.2:1b"
         ]
         
@@ -105,4 +107,4 @@ class OllamaBackend(AIBackend):
             return models[0]
         
         logger.warning("No Ollama models found, using default")
-        return "qwen3:8b"
+        return "qwen2.5-coder:7b-instruct"
