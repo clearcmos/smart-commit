@@ -844,10 +844,10 @@ class SmartCommit:
             
             # Use raw API call to avoid commit message validation
             if hasattr(self.ai_backend, 'call_api_raw'):
-                logger.info("🤖 Using call_api_raw for branch name generation")
+                logger.info("Using call_api_raw for branch name generation")
                 response = await self.ai_backend.call_api_raw(prompt)
             else:
-                logger.info("🤖 Using regular call_api for branch name generation")
+                logger.info("Using regular call_api for branch name generation")
                 response = await self.ai_backend.call_api(prompt)
             
             logger.info(f"✅ AI response for branch name: '{response.content}'")
