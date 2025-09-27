@@ -2,10 +2,6 @@
 
 This document provides context for AI assistants working on the Smart Git Commit Tool v2.1.0 Python rewrite.
 
-> **v2.1.0 Update**: Atomic commits are now default, branch protection for main/master, AI-generated branch names, and improved workflow safety.
-
-> **v2.0.1 Update**: Major validation improvements, 100% success rate for atomic commits, and enhanced AI response handling.
-
 ## Project Overview
 
 A complete rewrite of the intelligent bash script in professional Python, featuring enterprise-grade architecture, beautiful CLI interface, and production-ready code quality. The tool analyzes git changes and generates meaningful commit messages using dual AI backends (Ollama and llama.cpp) with automatic detection and cross-platform support.
@@ -53,7 +49,7 @@ smart_commit/
 - **Framework**: Typer with Rich markup support
 - **Pattern**: Callback-based with default action
 - **Features**: 
-  - Default action is atomic commits (changed in v2.1.0)
+  - Default action is atomic commits
   - Branch protection for main/master branches
   - AI-generated branch names with interactive editing
   - Global options apply to default action
@@ -95,7 +91,7 @@ async def run_traditional_commit(dry_run: bool, force_branch: bool, new_branch_n
     """Single commit workflow with branch protection."""
 
 async def run_atomic_commits(dry_run: bool, force_branch: bool, new_branch_name: str, switch_to_branch: str) -> None:
-    """Atomic commits workflow (one per file) - now default."""
+    """Atomic commits workflow (one per file) - default behavior."""
 
 async def _check_branch_protection(new_branch_name: str, switch_to_branch: str) -> str:
     """Check branch protection and handle accordingly."""
@@ -226,10 +222,10 @@ def show_progress_bar(self, total: int, description: str):
   - Smart truncation with word boundaries
   - Intelligent fallbacks for malformed responses
 
-#### Validation Improvements (v2.0.1)
-- **Flexible regex patterns**: `\s*` instead of `\s+` for colon spacing
-- **Better AI response handling**: Supports both `fix(scope):message` and `fix(scope): message`
-- **Improved success rates**: 100% validation success for atomic commits
+#### Validation Features
+- **Flexible regex patterns**: `\s*` for colon spacing tolerance
+- **Enhanced AI response handling**: Supports various conventional commit formats
+- **Improved success rates**: High validation success rate for commit messages
 - **Enhanced whitespace tolerance**: Handles AI responses with or without spaces after colons
 
 #### Prompt Builder (`prompts.py`)
@@ -295,11 +291,11 @@ def show_progress_bar(self, total: int, description: str):
 
 ## Performance Optimization
 
-### Recent Improvements (v2.0.1)
-- **Validation Success Rate**: Improved from ~80% to 100%
-- **Processing Time**: Reduced by ~20% for atomic commits
-- **Error Recovery**: Better handling of AI response variations
-- **User Experience**: More reliable commit message generation
+### Current Performance Features
+- **High Validation Success Rate**: Reliable commit message generation
+- **Optimized Processing**: Efficient atomic commit handling
+- **Enhanced Error Recovery**: Robust handling of AI response variations
+- **Improved User Experience**: Consistent and reliable operation
 
 ### Async Architecture
 - All I/O operations use `async/await`
@@ -406,20 +402,6 @@ class TestAIBackend:
 - Check that package is installed in development mode (`pip install -e .`)
 - Verify Python path includes project directory
 
-### Validation Issues (Resolved in v2.0.1)
-
-**Conventional Commit Format Validation**:
-- **Problem**: AI responses like `fix(scope):message` (no space after colon) failed validation
-- **Root Cause**: Regex pattern `\s+` required mandatory whitespace after colon
-- **Solution**: Updated to `\s*` for flexible whitespace handling
-- **Files Updated**: `smart_commit/ai_backends/llamacpp.py` validation patterns
-- **Result**: 100% validation success rate for all commit message formats
-
-**AI Response Handling**:
-- **Problem**: AI sometimes generates responses without proper spacing
-- **Solution**: More flexible parsing that handles both formats
-- **Benefit**: Better reliability and user experience
-
 **Type Checking Failures**:
 - Run `mypy smart_commit/` to check types
 - Ensure all functions have proper type hints
@@ -470,9 +452,9 @@ class TestAIBackend:
 - **Multi-Repository Support**: Workspace-level configuration
 
 ### Quality Improvements
-- **Comprehensive Testing**: 100% test coverage goal
+- **Comprehensive Testing**: High test coverage
 - **Documentation**: API documentation with Sphinx
 - **Performance Benchmarking**: Automated performance testing
 - **Security Audit**: Dependency vulnerability scanning
 
-This architecture represents a significant upgrade from the bash version, providing a solid foundation for future development while maintaining the core functionality that made the original tool valuable.
+This architecture provides a solid foundation for future development while maintaining the core functionality that makes the tool valuable.
