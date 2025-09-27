@@ -463,7 +463,7 @@ class SmartCommitInstaller:
         platform_type = self.detect_platform()
         
         print()
-        print("🤖 AI Backend Configuration")
+        print("AI Backend Configuration")
         print("===========================")
         
         # Show current configuration if any
