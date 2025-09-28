@@ -132,6 +132,7 @@ class GitRepository:
     def _get_staged_changes(self, max_lines: int) -> List[FileChange]:
         """Get staged file changes."""
         changes = []
+        seen_files = set()  # Track processed files to avoid duplicates
         
         try:
             # Use git status --porcelain to get the actual staged status
@@ -139,61 +140,89 @@ class GitRepository:
             status_output = self.repo.git.status('--porcelain')
             for line in status_output.split('\n'):
                 if line.strip():
-                    status_code = line[:2]
-                    file_path = line[3:]
+                    # Git status format: XY filename
+                    # X = staged status, Y = unstaged status
+                    if len(line) < 3:
+                        continue
                     
-                    if status_code.startswith('A'):  # Staged addition
-                        # This is a staged addition
-                        change_type = 'A'  # Added
+                    staged_status = line[0]  # First char is staged status
+                    unstaged_status = line[1]  # Second char is unstaged status
+                    file_path = line[3:]  # Skip "XY " prefix
+                    
+                    # Skip if we've already processed this file
+                    if file_path in seen_files:
+                        continue
+                    
+                    # Only process if there's a staged change (not ' ' or '?')
+                    if staged_status in ['A', 'M', 'D', 'R', 'C']:
+                        seen_files.add(file_path)
                         
-                        # Get the file content for the diff
-                        try:
-                            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                                content = f.read()
-                                lines = content.split('\n')
-                                if len(lines) > max_lines:
-                                    lines = lines[:max_lines] + [f"... (truncated, {len(lines) - max_lines} more lines)"]
-                                diff_content = "\n".join(lines)
-                        except Exception:
-                            diff_content = f"Added file: {file_path}"
-                        
-                        changes.append(FileChange(
-                            file_path=file_path,
-                            change_type=change_type,
-                            diff_content=diff_content,
-                            lines_added=len(content.split('\n')) if 'content' in locals() else 0,
-                            lines_removed=0
-                        ))
-                    elif status_code.startswith('M'):  # Staged modification
-                        # This is a staged modification
-                        change_type = 'M'  # Modified
-                        
-                        # Get the diff between HEAD and the staged version
-                        try:
-                            diff_output = self.repo.git.diff('HEAD', '--', file_path)
-                            diff_content = diff_output
-                        except Exception:
-                            diff_content = f"Modified file: {file_path}"
-                        
-                        changes.append(FileChange(
-                            file_path=file_path,
-                            change_type=change_type,
-                            diff_content=diff_content,
-                            lines_added=0,
-                            lines_removed=0
-                        ))
-                    elif status_code.startswith('D'):  # Staged deletion
-                        # This is a staged deletion
-                        change_type = 'D'  # Deleted
-                        diff_content = f"Deleted file: {file_path}"
-                        
-                        changes.append(FileChange(
-                            file_path=file_path,
-                            change_type=change_type,
-                            diff_content=diff_content,
-                            lines_added=0,
-                            lines_removed=0
-                        ))
+                        if staged_status == 'A':  # Staged addition
+                            change_type = 'A'  # Added
+                            
+                            # Get the file content for the diff
+                            try:
+                                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                    content = f.read()
+                                    lines = content.split('\n')
+                                    if len(lines) > max_lines:
+                                        lines = lines[:max_lines] + [f"... (truncated, {len(lines) - max_lines} more lines)"]
+                                    diff_content = "\n".join(lines)
+                            except Exception:
+                                diff_content = f"Added file: {file_path}"
+                            
+                            changes.append(FileChange(
+                                file_path=file_path,
+                                change_type=change_type,
+                                diff_content=diff_content,
+                                lines_added=len(content.split('\n')) if 'content' in locals() else 0,
+                                lines_removed=0
+                            ))
+                        elif staged_status == 'M':  # Staged modification
+                            change_type = 'M'  # Modified
+                            
+                            # Get the diff between HEAD and the staged version
+                            try:
+                                diff_output = self.repo.git.diff('HEAD', '--', file_path)
+                                diff_content = diff_output
+                            except Exception:
+                                diff_content = f"Modified file: {file_path}"
+                            
+                            changes.append(FileChange(
+                                file_path=file_path,
+                                change_type=change_type,
+                                diff_content=diff_content,
+                                lines_added=0,
+                                lines_removed=0
+                            ))
+                        elif staged_status == 'D':  # Staged deletion
+                            change_type = 'D'  # Deleted
+                            diff_content = f"Deleted file: {file_path}"
+                            
+                            changes.append(FileChange(
+                                file_path=file_path,
+                                change_type=change_type,
+                                diff_content=diff_content,
+                                lines_added=0,
+                                lines_removed=0
+                            ))
+                        elif staged_status == 'R':  # Staged rename
+                            change_type = 'R'  # Renamed
+                            # For renamed files, git shows "old -> new"
+                            if ' -> ' in file_path:
+                                old_path, new_path = file_path.split(' -> ')
+                                file_path = new_path
+                                diff_content = f"Renamed file: {old_path} -> {new_path}"
+                            else:
+                                diff_content = f"Renamed file: {file_path}"
+                            
+                            changes.append(FileChange(
+                                file_path=file_path,
+                                change_type=change_type,
+                                diff_content=diff_content,
+                                lines_added=0,
+                                lines_removed=0
+                            ))
                         
         except Exception as e:
             logger.warning(f"Failed to get staged changes: {e}")
