@@ -159,12 +159,23 @@ class SmartCommit:
         self.console.print_repository_status(repo_state)
         
         # Get all files to process (tracked changes + untracked files)
-        files_to_process = repo_state.all_changes.copy()
+        files_to_process = []
+        seen_files = set()  # Track files we've already added to avoid duplicates
+        
+        # Add tracked changes (staged and unstaged), avoiding duplicates
+        for change in repo_state.all_changes:
+            if change.file_path not in seen_files:
+                files_to_process.append(change)
+                seen_files.add(change.file_path)
         
         # Add untracked files/directories as top-level units (like bash version)
         top_level_untracked = self._get_top_level_untracked(repo_state.untracked_files)
         
         for untracked_item in top_level_untracked:
+            # Skip if we've already processed this file
+            if untracked_item in seen_files:
+                continue
+                
             try:
                 item_path = Path(self.git_repo.repo_path) / untracked_item
                 
@@ -194,6 +205,7 @@ class SmartCommit:
                         lines_removed=0
                     )
                     files_to_process.append(file_change)
+                    seen_files.add(untracked_item)
                     
                 elif item_path.is_dir():
                     # Handle directory as a unit
@@ -216,6 +228,7 @@ class SmartCommit:
                         lines_removed=0
                     )
                     files_to_process.append(file_change)
+                    seen_files.add(untracked_item)
                     
             except Exception as e:
                 logger.warning(f"Failed to process untracked item {untracked_item}: {e}")
@@ -342,11 +355,18 @@ class SmartCommit:
     async def _generate_atomic_commit_messages(self, file_changes: List[FileChange]) -> List[Dict[str, str]]:
         """Generate commit messages for each file change."""
         commit_messages = []
+        seen_files = set()  # Track files to avoid duplicates
         total_start_time = time.time()
         
         self.console.console.print(f"\n[bold blue]Generating commit messages for {len(file_changes)} files...[/bold blue]")
         
         for i, file_change in enumerate(file_changes, 1):
+            # Skip if we've already generated a message for this file
+            if file_change.file_path in seen_files:
+                logger.warning(f"Skipping duplicate file: {file_change.file_path}")
+                continue
+            
+            seen_files.add(file_change.file_path)
             file_start_time = time.time()
             self.console.console.print(f"\n[cyan]Processing file {i}/{len(file_changes)}:[/cyan] {file_change.file_path}")
             
@@ -516,19 +536,52 @@ class SmartCommit:
                     file_path = commit_data["file_path"]
                     message = commit_data["message"]
                     
-                    # Stage only this file
-                    self.git_repo.stage_files([file_path])
+                    # Check if file exists or was deleted
+                    file_full_path = Path(self.git_repo.repo_path) / file_path
+                    is_deleted = not file_full_path.exists()
                     
-                    # Security scan for this file
-                    scan_result = await self.security_scanner.scan_before_commit(
-                        self.git_repo.repo_path, 
-                        [file_path]
-                    )
+                    # Check if file has any changes to commit
+                    status_output = self.git_repo.repo.git.status('--porcelain', file_path)
+                    if not status_output.strip():
+                        logger.warning(f"File {file_path} has no changes to commit - skipping")
+                        self.console.print_warning(f"No changes for {file_path} - skipping")
+                        progress.advance(task)
+                        continue
                     
-                    if scan_result["should_block_commit"]:
-                        if scan_result["secrets_found"]:
-                            self.console.print_warning(f"Secrets detected in {file_path} - skipping commit")
-                            continue
+                    # Stage only this file (handles both existing and deleted files)
+                    try:
+                        if is_deleted:
+                            # For deleted files, use git rm
+                            self.git_repo.repo.index.remove([file_path])
+                        else:
+                            # For existing files, stage normally
+                            self.git_repo.stage_files([file_path])
+                    except Exception as stage_error:
+                        logger.warning(f"Failed to stage {file_path}: {stage_error}")
+                        # Try alternative staging method
+                        self.git_repo.repo.git.add(file_path, force=True)
+                    
+                    # Security scan for non-deleted files
+                    if not is_deleted:
+                        scan_result = await self.security_scanner.scan_before_commit(
+                            self.git_repo.repo_path, 
+                            [file_path]
+                        )
+                        
+                        if scan_result["should_block_commit"]:
+                            if scan_result["secrets_found"]:
+                                self.console.print_warning(f"Secrets detected in {file_path} - skipping commit")
+                                continue
+                    
+                    # Check if there are staged changes for this file
+                    staged_files = self.git_repo.repo.index.diff("HEAD")
+                    has_staged_changes = any(d.a_path == file_path or d.b_path == file_path for d in staged_files)
+                    
+                    if not has_staged_changes and not is_deleted:
+                        logger.warning(f"No staged changes for {file_path} - skipping")
+                        self.console.print_warning(f"No staged changes for {file_path} - skipping")
+                        progress.advance(task)
+                        continue
                     
                     # Create commit
                     commit_hash = self.git_repo.commit(message)
